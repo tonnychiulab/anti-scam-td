@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<!-- 資安（CIA）：內容安全政策——僅允許自身腳本與 Google Fonts，杜絕外部注入 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="防詐迷宮塔防：用 165 專線塔、查證雷達與防火牆守住民眾的錢包！87 關像素風公益遊戲。">
+<meta name="theme-color" content="#1b1b2f">
+<title>防詐迷宮 SCAM MAZE DEFENSE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Cubic+11&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%231b1b2f'/%3E%3Crect x='3' y='2' width='10' height='12' fill='%23ffd166'/%3E%3Crect x='5' y='5' width='6' height='2' fill='%231b1b2f'/%3E%3Crect x='5' y='9' width='6' height='2' fill='%23ef476f'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- ══════════ 開始畫面 ══════════ -->
+<div id="startScreen" class="overlay show">
+  <div class="panel start-panel">
+    <h1 class="game-title"><span class="zh">防詐迷宮</span><br><span class="en">SCAM MAZE DEFENSE</span></h1>
+    <p class="tagline">詐騙大軍正衝向民眾的錢包——<br>蓋出你的防詐迷宮，一關都別放過！</p>
+    <div class="name-row">
+      <label for="playerName">玩家代號</label>
+      <input id="playerName" type="text" maxlength="10" placeholder="匿名勇者" autocomplete="off">
+    </div>
+    <button id="btnStart" class="pixel-btn big primary">
+      <svg viewBox="0 0 16 16" class="icn"><path d="M4 2h2v2h2v2h2v2h2v2h-2v2H8v2H6v2H4z" fill="currentColor"/></svg>
+      開始防詐 START
+    </button>
+    <div class="start-row2">
+      <button id="btnHow" class="pixel-btn">玩法說明</button>
+      <button id="btnBoard" class="pixel-btn">排行榜</button>
+    </div>
+    <p class="credit">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.2.0</span></p>
+  </div>
+</div>
+
+<!-- ══════════ 玩法說明 ══════════ -->
+<div id="howScreen" class="overlay">
+  <div class="panel">
+    <h2>玩法說明</h2>
+    <ul class="how-list">
+      <li>🏰 <b>目標：</b>阻止詐騙大軍走出迷宮、碰到「民眾」。共 <b>87 關</b>。</li>
+      <li>🔨 <b>蓋塔：</b>點下方武器，再點草地放置。點已蓋的塔可升級／拆除。</li>
+      <li>🎲 <b>Roguelike 迷宮：</b>每關地圖重生，塔會<b>全額退回點數</b>讓你重新佈陣。</li>
+      <li>🆕 <b>13 種武器隨關卡解鎖：</b>里長、記者、志工、電信、阿嬤、檢察官會陸續加入你的防詐國家隊！</li>
+      <li>❤️ <b>血量＝民眾信任：</b>每成功<b>識別（擊破）一隻詐騙，血量 +1</b>；被詐騙溜進家門會扣血。</li>
+      <li>💛 <b>3 條命：</b>血量歸零損失一命。三命用盡，遊戲結束。</li>
+      <li>🛡️ <b>續命：</b>關卡之間會跳出「詐騙訊息」，<b>成功避開（封鎖）就 +1 命</b>，點錯會受傷！</li>
+      <li>🏆 <b>計分：</b>擊破越多、過關越多分數越高，可匿名留名排行榜。</li>
+    </ul>
+    <button class="pixel-btn primary close-how">知道了 GO!</button>
+  </div>
+</div>
+
+<!-- ══════════ 主遊戲 ══════════ -->
+<div id="gameWrap" class="hidden">
+  <header id="hud">
+    <div class="hud-item" id="hudLevel" title="關卡">🚩 <span id="lvNow">1</span>/87</div>
+    <div class="hud-item" id="hudHP" title="民眾信任（血量）">❤️ <span id="hpNow">10</span></div>
+    <div class="hud-item" id="hudLives" title="生命"><span id="livesNow">💛💛💛</span></div>
+    <div class="hud-item" id="hudCoin" title="查證點數">🪙 <span id="coinNow">120</span></div>
+    <div class="hud-item" id="hudScore" title="分數">⭐ <span id="scoreNow">0</span></div>
+    <div class="hud-btns">
+      <button id="btnSpeed" class="pixel-btn mini" title="遊戲速度">▶×1</button>
+      <button id="btnPause" class="pixel-btn mini" title="暫停">❚❚</button>
+      <button id="btnMute" class="pixel-btn mini" title="音效">♪</button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <canvas id="cv" width="960" height="576"></canvas>
+    <div id="waveBanner" class="wave-banner hidden"></div>
+  </main>
+
+  <footer id="shop">
+    <button class="tower-btn pixel-btn" data-t="0" title="便宜快手，曾攔下無數買點數的受害者">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="5" y="1" width="6" height="5" fill="#ffd9b3"/><rect x="6" y="2" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="8.5" y="2" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="3" y="6" width="10" height="8" fill="#57e389"/><rect x="3" y="8" width="10" height="2" fill="#f4f1e8"/><rect x="7" y="6" width="2" height="8" fill="#2e6b31"/></svg>
+      <span class="tn">超商工讀生</span><span class="tc">🪙40</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="1" title="24小時反詐騙通報">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="3" y="1" width="10" height="14" rx="1" fill="#26a269"/><rect x="5" y="3" width="6" height="4" fill="#eaf7ee"/><text x="8" y="13" font-size="6" text-anchor="middle" fill="#fff" font-family="monospace">165</text></svg>
+      <span class="tn">165專線塔</span><span class="tc">🪙60</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="2" title="減速：查證讓詐騙走不動">
+      <svg viewBox="0 0 16 16" class="icn"><circle cx="7" cy="7" r="4.5" fill="none" stroke="#33d0ff" stroke-width="2"/><rect x="10" y="10" width="5" height="2.4" rx="1" transform="rotate(45 10 11)" fill="#33d0ff"/></svg>
+      <span class="tn">查證雷達</span><span class="tc">🪙80</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="3" title="臨櫃關懷攔匯款，每次命中回收點數">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="5" y="1" width="6" height="5" fill="#ffd9b3"/><rect x="6" y="2" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="8.5" y="2" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="3" y="6" width="10" height="8" fill="#3a3a5c"/><rect x="7" y="6" width="2" height="5" fill="#f5c211"/><circle cx="12.5" cy="12.5" r="3" fill="#f5c211"/><text x="12.5" y="14.3" font-size="4.5" text-anchor="middle" fill="#1b1b2f">$</text></svg>
+      <span class="tn">銀行行員</span><span class="tc">🪙90</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="4" title="範圍濺射傷害">
+      <svg viewBox="0 0 16 16" class="icn"><path d="M8 1l6 2v5c0 4-3 6-6 7-3-1-6-3-6-7V3z" fill="#e5a50a"/><path d="M5 7l2 2 4-4" stroke="#1b1b2f" stroke-width="2" fill="none"/></svg>
+      <span class="tn">防火牆</span><span class="tc">🪙100</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="5" title="逮捕！命中暈眩詐騙">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="4" y="3" width="8" height="3" fill="#1a5fb4"/><rect x="3" y="5" width="10" height="1.5" fill="#0d3b73"/><rect x="5" y="6.5" width="6" height="4" fill="#ffd9b3"/><rect x="6" y="7.5" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="8.5" y="7.5" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="3" y="10.5" width="10" height="4.5" fill="#1a5fb4"/><rect x="7" y="11.5" width="2" height="2" fill="#ffd166"/></svg>
+      <span class="tn">警察</span><span class="tc">🪙120</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="6" title="超遠距重傷害宣導">
+      <svg viewBox="0 0 16 16" class="icn"><path d="M2 6h4l6-4v12l-6-4H2z" fill="#ef476f"/><path d="M13 5c1 1.5 1 4.5 0 6" stroke="#ef476f" stroke-width="1.6" fill="none"/></svg>
+      <span class="tn">宣導廣播</span><span class="tc">🪙140</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="7" title="村里廣播：範圍內所有塔攻速+30%（Lv.5 解鎖）">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="6" y="8" width="4" height="7" fill="#8a5a2b"/><rect x="3" y="2" width="10" height="6" fill="#ff9e36"/><rect x="5" y="4" width="6" height="2" fill="#1b1b2f"/><path d="M1 3l2 2M15 3l-2 2" stroke="#ffd166" stroke-width="1.5"/></svg>
+      <span class="tn">里長廣播站</span><span class="tc">🪙110</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="8" title="爆料曝光：被標記的詐騙受傷+50%（Lv.8 解鎖）">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="2" y="5" width="12" height="8" rx="1" fill="#c061cb"/><circle cx="8" cy="9" r="2.6" fill="#1b1b2f"/><circle cx="8" cy="9" r="1.2" fill="#f4f1e8"/><rect x="5" y="3" width="6" height="2" fill="#c061cb"/><rect x="12" y="6" width="1.5" height="1.5" fill="#ffd166"/></svg>
+      <span class="tn">記者爆料塔</span><span class="tc">🪙130</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="9" title="範圍內陣亡的詐騙有機率轉化為防詐志工，反向掃蕩並+1血（Lv.10 解鎖）">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="5" y="1" width="6" height="5" fill="#ffd9b3"/><rect x="6" y="2" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="8.5" y="2" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="3" y="6" width="10" height="8" fill="#9be79b"/><path d="M8 7l1.5 3-1.5 4-1.5-4z" fill="#ffd166"/></svg>
+      <span class="tn">現身說法志工</span><span class="tc">🪙180</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="10" title="定期把最弱的詐騙「已讀刪除」（Lv.13 解鎖）">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="4" y="1" width="8" height="14" rx="1.5" fill="#00b8a9"/><rect x="5.5" y="3" width="5" height="8" fill="#0f2f2c"/><path d="M2 2l12 12" stroke="#ef476f" stroke-width="2"/></svg>
+      <span class="tn">電信攔截塔</span><span class="tc">🪙150</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="11" title="「我孫子才不會這樣講話！」把詐騙罵到倒退嚕（Lv.16 解鎖）">
+      <svg viewBox="0 0 16 16" class="icn"><circle cx="8" cy="4" r="2.6" fill="#d5d0cd"/><rect x="4.5" y="6" width="7" height="6" fill="#ffd9b3"/><rect x="5.5" y="7.5" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="9" y="7.5" width="1.5" height="1.5" fill="#1b1b2f"/><rect x="4" y="12" width="8" height="3" fill="#f66151"/><path d="M12.5 5.5c2-.5 2 3 0 2.6" stroke="#8a5a2b" stroke-width="1.4" fill="none"/></svg>
+      <span class="tn">阿嬤智慧塔</span><span class="tc">🪙160</span>
+    </button>
+    <button class="tower-btn pixel-btn" data-t="12" title="低血量詐騙直接起訴定罪（Lv.20 解鎖）">
+      <svg viewBox="0 0 16 16" class="icn"><rect x="2" y="12.5" width="12" height="2.5" fill="#813d9c"/><rect x="6.5" y="4" width="3" height="9" fill="#5d2a73"/><rect x="3" y="2" width="10" height="3.5" rx="1" transform="rotate(-18 8 4)" fill="#813d9c"/></svg>
+      <span class="tn">檢察官起訴塔</span><span class="tc">🪙200</span>
+    </button>
+    <button id="btnNextWave" class="pixel-btn primary wave-btn">出怪 ▶</button>
+  </footer>
+
+  <!-- 塔操作面板 -->
+  <div id="towerMenu" class="tower-menu hidden">
+    <div id="tmName" class="tm-name"></div>
+    <button id="tmUp" class="pixel-btn mini">升級 🪙<span id="tmUpCost"></span></button>
+    <button id="tmSell" class="pixel-btn mini danger">拆除 +🪙<span id="tmSellGain"></span></button>
+  </div>
+</div>
+
+<!-- ══════════ 避開詐騙（續命）彈窗 ══════════ -->
+<div id="quizScreen" class="overlay">
+  <div class="panel quiz-panel">
+    <h2>⚠️ 詐騙來襲！避開它就 +1 命</h2>
+    <div id="quizMsg" class="quiz-msg"></div>
+    <div class="quiz-btns">
+      <button id="quizBad" class="pixel-btn danger"></button>
+      <button id="quizGood" class="pixel-btn primary"></button>
+    </div>
+    <div id="quizResult" class="quiz-result hidden"></div>
+  </div>
+</div>
+
+<!-- ══════════ 過關轉場 ══════════ -->
+<div id="stageClear" class="clear-fx hidden" aria-hidden="true">
+  <div class="band b1"></div><div class="band b2"></div><div class="band b3"></div>
+  <div class="clear-inner">
+    <svg viewBox="0 0 32 32" class="hero">
+      <rect x="10" y="4" width="12" height="10" fill="#ffd166"/>
+      <rect x="12" y="7" width="3" height="3" fill="#1b1b2f"/><rect x="18" y="7" width="3" height="3" fill="#1b1b2f"/>
+      <rect x="8" y="14" width="16" height="10" fill="#3584e4"/>
+      <rect x="4" y="15" width="4" height="7" fill="#ffd166"/><rect x="24" y="12" width="6" height="4" fill="#ef476f"/>
+      <rect x="10" y="24" width="4" height="6" fill="#1b1b2f"/><rect x="18" y="24" width="4" height="6" fill="#1b1b2f"/>
+    </svg>
+    <div class="clear-word en" id="clearWordEn">STAGE CLEAR!</div>
+    <div class="clear-word zh" id="clearWordZh">詐騙集團全滅！</div>
+    <div class="clear-tip" id="clearTip"></div>
+  </div>
+</div>
+
+<!-- ══════════ 遊戲結束 / 排行榜 ══════════ -->
+<div id="endScreen" class="overlay">
+  <div class="panel">
+    <h2 id="endTitle">GAME OVER</h2>
+    <p id="endStats" class="end-stats"></p>
+    <button id="btnSaveScore" class="pixel-btn primary">記錄成績 ✍</button>
+    <button id="btnRetry" class="pixel-btn">再挑戰一次 ↻</button>
+  </div>
+</div>
+
+<div id="boardScreen" class="overlay">
+  <div class="panel">
+    <h2>🏆 防詐英雄榜</h2>
+    <ol id="boardList" class="board-list"></ol>
+    <p class="board-note">成績儲存在你的瀏覽器（匿名、不上傳）</p>
+    <button class="pixel-btn primary close-board">關閉</button>
+  </div>
+</div>
+
+<div id="cacheStat" title="版本與靜態資源快取命中率（Service Worker）">CACHE --</div>
+
+<script src="game.js"></script>
+</body>
+</html>

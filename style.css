@@ -1,0 +1,227 @@
+/* ═══════════════════════════════════════════════
+   防詐迷宮 SCAM MAZE DEFENSE — 像素風樣式
+   英文字型：Press Start 2P／中文字型：Cubic 11
+   ═══════════════════════════════════════════════ */
+:root{
+  --bg:#1b1b2f;        --bg2:#24243e;
+  --ink:#f4f1e8;       --dim:#9a97b0;
+  --gold:#ffd166;      --red:#ef476f;
+  --green:#26a269;     --blue:#3584e4;
+  --yellow:#e5a50a;
+  --font-en:'Press Start 2P';
+  --font-zh:'Cubic 11';
+  --px:3px; /* 像素邊框厚度 */
+}
+*{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  background:var(--bg);
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 30px, rgba(255,255,255,.02) 30px 31px),
+    repeating-linear-gradient(90deg, transparent 0 30px, rgba(255,255,255,.02) 30px 31px);
+  color:var(--ink);
+  font-family:var(--font-en),var(--font-zh),monospace;
+  overflow-x:hidden;
+  touch-action:manipulation;
+}
+.zh, .how-list, .tagline, .tn, .quiz-msg, .board-note, input, .tm-name{font-family:var(--font-zh),var(--font-en),sans-serif;}
+.hidden{display:none !important;}
+
+/* ── 像素按鈕 ─────────────────────────── */
+.pixel-btn{
+  font-family:var(--font-zh),var(--font-en),monospace;
+  font-size:18px; color:var(--ink); cursor:pointer;
+  background:var(--bg2);
+  border:var(--px) solid var(--ink);
+  box-shadow:inset calc(var(--px)*-1) calc(var(--px)*-1) 0 rgba(0,0,0,.45),
+             inset var(--px) var(--px) 0 rgba(255,255,255,.12),
+             4px 4px 0 #000;
+  padding:10px 16px;
+  image-rendering:pixelated;
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  user-select:none;
+}
+.pixel-btn:hover{filter:brightness(1.15);}
+.pixel-btn:active{transform:translate(3px,3px); box-shadow:1px 1px 0 #000;}
+.pixel-btn.primary{background:var(--green);}
+.pixel-btn.danger{background:var(--red);}
+.pixel-btn.big{font-size:22px; padding:16px 26px;}
+.pixel-btn.mini{font-size:14px; padding:6px 10px;}
+.pixel-btn .icn{width:26px; height:26px; image-rendering:pixelated;}
+.pixel-btn.sel{background:var(--gold); color:#1b1b2f; border-color:#fff;}
+
+/* ── 覆蓋層與面板 ─────────────────────── */
+.overlay{
+  position:fixed; inset:0; z-index:50;
+  background:rgba(15,15,30,.9);
+  display:none; align-items:center; justify-content:center; padding:16px;
+}
+.overlay.show{display:flex;}
+.panel{
+  background:var(--bg2); border:var(--px) solid var(--ink);
+  box-shadow:8px 8px 0 #000;
+  padding:26px 24px; max-width:560px; width:100%;
+  max-height:92vh; overflow-y:auto;
+  text-align:center;
+}
+.panel h2{font-family:var(--font-zh); font-size:24px; margin-bottom:14px; color:var(--gold);}
+
+/* 開始畫面 */
+.game-title{line-height:1.35; margin-bottom:12px;}
+.game-title .zh{font-size:44px; color:var(--gold); text-shadow:4px 4px 0 var(--red), 8px 8px 0 #000;}
+.game-title .en{font-size:15px; color:var(--blue); letter-spacing:2px;}
+.tagline{font-size:18px; color:var(--dim); margin-bottom:18px; line-height:1.7;}
+.name-row{display:flex; gap:10px; justify-content:center; align-items:center; margin-bottom:18px; font-size:17px;}
+.name-row input{
+  background:#101020; color:var(--gold); border:var(--px) solid var(--ink);
+  font-size:18px; padding:9px 12px; width:12em; text-align:center;
+}
+.start-row2{display:flex; gap:12px; justify-content:center; margin-top:14px;}
+.credit{margin-top:20px; font-size:13px; color:var(--dim); line-height:1.8;}
+.credit .en-sm{font-size:9px;}
+
+/* 玩法說明 */
+.how-list{text-align:left; font-size:17px; line-height:1.8; margin-bottom:18px; list-style:none;}
+.how-list li{margin-bottom:10px;}
+.how-list b{color:var(--gold);}
+
+/* ── HUD ─────────────────────────────── */
+#gameWrap{display:flex; flex-direction:column; min-height:100dvh; align-items:center;}
+#hud{
+  display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; justify-content:center;
+  width:100%; max-width:1000px; padding:10px 12px;
+  font-size:15px;
+}
+.hud-item{
+  background:var(--bg2); border:2px solid #000; padding:6px 10px;
+  box-shadow:2px 2px 0 #000; white-space:nowrap;
+}
+#hudHP{color:#ff9db1;} #hudCoin{color:var(--gold);} #hudScore{color:#9be79b;}
+.hud-btns{display:flex; gap:6px;}
+
+/* ── 遊戲畫布 ─────────────────────────── */
+#stage{position:relative; width:100%; max-width:1000px; padding:0 12px;}
+#cv{
+  display:block; width:100%; height:auto;
+  border:var(--px) solid var(--ink); box-shadow:6px 6px 0 #000;
+  image-rendering:pixelated;
+  background:#20203a;
+  touch-action:manipulation;
+}
+.wave-banner{
+  position:absolute; top:14px; left:50%; transform:translateX(-50%);
+  background:rgba(20,20,40,.92); border:2px solid var(--gold); color:var(--gold);
+  font-family:var(--font-zh); font-size:20px; padding:8px 22px;
+  box-shadow:4px 4px 0 #000; pointer-events:none; z-index:5;
+  animation:bannerPop .4s steps(4);
+}
+@keyframes bannerPop{from{transform:translateX(-50%) scale(.3);} to{transform:translateX(-50%) scale(1);}}
+
+/* ── 商店列 ───────────────────────────── */
+#shop{
+  display:flex; flex-wrap:wrap; gap:10px; justify-content:center;
+  width:100%; max-width:1000px; padding:12px;
+}
+.tower-btn{flex-direction:column; gap:3px; min-width:96px; padding:8px 10px;}
+.tower-btn.locked{filter:grayscale(1) brightness(.55);}
+.tower-btn .tn{font-size:16px;}
+.tower-btn .tc{font-size:12px; color:var(--gold);}
+.wave-btn{min-width:120px; font-size:19px;}
+
+/* 塔選單 */
+.tower-menu{
+  position:absolute; z-index:20;
+  background:var(--bg2); border:2px solid var(--ink); box-shadow:4px 4px 0 #000;
+  padding:8px; display:flex; flex-direction:column; gap:6px;
+}
+.tm-name{font-size:15px; color:var(--gold); text-align:center;}
+
+/* ── 續命測驗 ─────────────────────────── */
+.quiz-panel h2{color:var(--red);}
+.quiz-msg{
+  background:#101020; border:2px dashed var(--dim);
+  text-align:left; font-size:18px; line-height:1.75;
+  padding:14px 16px; margin-bottom:16px; white-space:pre-line;
+}
+.quiz-btns{display:flex; gap:14px; justify-content:center; flex-wrap:wrap;}
+.quiz-btns .pixel-btn{font-size:18px;}
+.quiz-result{margin-top:14px; font-family:var(--font-zh); font-size:19px; line-height:1.6;}
+.quiz-result.ok{color:#9be79b;} .quiz-result.no{color:#ff9db1;}
+
+/* ── 過關轉場（快打旋風式） ────────────── */
+.clear-fx{
+  position:fixed; inset:0; z-index:60; overflow:hidden; pointer-events:none;
+  display:flex; align-items:center; justify-content:center;
+}
+.clear-fx .band{
+  position:absolute; left:-20%; width:140%; height:18vh;
+  transform:translateX(-120%) skewY(-4deg);
+}
+.clear-fx .b1{top:12%; background:var(--red);   animation:bandIn .35s steps(6) forwards;}
+.clear-fx .b2{top:38%; background:var(--gold);  animation:bandIn .35s .12s steps(6) forwards;}
+.clear-fx .b3{top:64%; background:var(--blue);  animation:bandIn .35s .24s steps(6) forwards;}
+@keyframes bandIn{to{transform:translateX(0) skewY(-4deg);}}
+.clear-inner{
+  position:relative; z-index:2; text-align:center;
+  animation:heroPunch .5s .3s steps(5) backwards;
+}
+.clear-inner .hero{width:clamp(110px,22vw,200px); height:auto; image-rendering:pixelated;
+  filter:drop-shadow(6px 6px 0 #000);}
+.clear-word{text-shadow:4px 4px 0 #000;}
+.clear-word.en{font-size:clamp(20px,4.5vw,42px); color:#fff; margin-top:8px; letter-spacing:2px;}
+.clear-word.zh{font-family:var(--font-zh); font-size:clamp(22px,4vw,36px); color:var(--gold); margin-top:6px;}
+.clear-tip{
+  font-family:var(--font-zh); font-size:clamp(15px,2.4vw,21px); color:#1b1b2f;
+  background:var(--ink); border:3px solid #000; box-shadow:4px 4px 0 #000;
+  display:inline-block; padding:8px 18px; margin-top:16px; max-width:82vw;
+  animation:tipIn .4s .7s steps(4) backwards;
+}
+@keyframes tipIn{from{transform:translateY(30px); opacity:0;} to{transform:translateY(0); opacity:1;}}
+@keyframes heroPunch{
+  0%{transform:scale(3); opacity:0;}
+  60%{transform:scale(.9); opacity:1;}
+  100%{transform:scale(1);}
+}
+.clear-fx.out{animation:fxOut .3s steps(4) forwards;}
+@keyframes fxOut{to{opacity:0;}}
+
+/* ── 結束與排行 ───────────────────────── */
+.end-stats{font-family:var(--font-zh); font-size:19px; line-height:1.9; margin-bottom:16px;}
+#endScreen .pixel-btn{margin:6px;}
+.board-list{
+  text-align:left; font-size:16px; line-height:2; list-style-position:inside;
+  background:#101020; border:2px solid var(--dim); padding:12px 16px; margin-bottom:12px;
+}
+.board-list li b{color:var(--gold); font-family:var(--font-zh);}
+.board-list li span.pt{float:right; color:#9be79b;}
+.board-note{font-size:13px; color:var(--dim); margin-bottom:12px;}
+
+/* ── 快取狀態 ─────────────────────────── */
+#cacheStat{
+  position:fixed; right:8px; bottom:8px; z-index:40;
+  font-size:9px; color:var(--dim); background:rgba(16,16,32,.8);
+  border:1px solid #333; padding:4px 8px;
+}
+
+/* ═══════════ RWD ═══════════ */
+@media (max-width:768px){
+  .pixel-btn{font-size:16px;}
+  .game-title .zh{font-size:34px;}
+  #hud{font-size:12px; gap:6px 8px; padding:8px 6px;}
+  .hud-item{padding:5px 7px;}
+  #stage{padding:0 6px;}
+  .tower-btn{min-width:86px; padding:6px;}
+  .tower-btn .tn{font-size:13px;}
+  .wave-btn{min-width:100%; order:9;} /* 手機：出怪鈕獨占一列，好按 */
+  .quiz-msg{font-size:16px;}
+}
+@media (max-width:420px){
+  .game-title .zh{font-size:28px;}
+  .game-title .en{font-size:10px;}
+  .tower-btn{min-width:calc(50% - 10px);}
+  .name-row{flex-direction:column;}
+}
+/* 橫式手機：HUD 收窄 */
+@media (max-height:480px) and (orientation:landscape){
+  #hud{font-size:11px;} .pixel-btn.mini{font-size:11px;}
+}
