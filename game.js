@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.0.0-b1';
+const APP_VERSION = 'v2.0.0';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -368,6 +368,7 @@ function moveProj(p, dt){
 
 /* ── 粒子特效 ─────────────────────────────────────── */
 function burst(x, y, color, n){
+  if (LAYOUT !== 'desktop') n = Math.max(3, Math.floor(n / 2));   // 行動裝置粒子減半
   for (let i=0;i<n;i++){
     const a = Math.random()*6.28, v = 40+Math.random()*140;
     S.fx.push({x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:.5+Math.random()*.3, color});
@@ -695,6 +696,7 @@ function afterQuiz(){
   S.level++;
   genLevel(S.level);
   S.autoT = 10;
+  if (S.level === 4) maybeOfferInstall();          // 玩家已投入：溫和提議加入主畫面
   const modName = L().ui.mods[S.mod.key];
   const modTag = modName ? `　${modName}` : '';
   const supNews = SUPPORT.map((s,i) => ({s,i})).filter(o => o.s.unlock === S.level);
@@ -786,7 +788,7 @@ function paintGround(g){
     if (S.grid[y][x] === 1) continue;              // 路面另外畫
     let h = ((x*73856093) ^ (y*19349663) ^ 0x9e3779b9) >>> 0;
     const rnd = () => { h = (h*1664525+1013904223)>>>0; return h/4294967296; };
-    const blades = 4 + Math.floor(rnd()*4);        // 草刃（深淺兩層）
+    const blades = (LAYOUT === 'desktop' ? 4 : 3) + Math.floor(rnd()*(LAYOUT === 'desktop' ? 4 : 2));  // 草刃（行動裝置減量）
     for (let i=0;i<blades;i++){
       const bx = px + 4 + rnd()*(CELL-10);
       const by = py + 6 + rnd()*(CELL-14);
@@ -1543,6 +1545,41 @@ function startGame(){
   updateHUD();
   if (!raf){ lastT = performance.now(); raf = requestAnimationFrame(loop); }
 }
+
+/* ── PWA 安裝提示（過第 3 關後一次性；尊重玩家，可永久關閉） ── */
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', ev => {
+  ev.preventDefault();
+  deferredPrompt = ev;
+});
+function dismissPwa(){
+  try{ localStorage.setItem('asmd_pwa_dismiss', '1'); }catch(e){}
+  const bar = document.getElementById('pwaBar');
+  if (bar) bar.classList.add('hidden');
+}
+function maybeOfferInstall(){
+  if (!deferredPrompt) return;                      // iOS 無此 API：不打擾
+  try{ if (localStorage.getItem('asmd_pwa_dismiss')) return; }catch(e){ return; }
+  const bar = document.getElementById('pwaBar');
+  if (!bar) return;
+  const m = document.getElementById('pwaMsg');
+  const y = document.getElementById('pwaYes');
+  const n = document.getElementById('pwaNo');
+  if (m) m.textContent = L().ui.pwaMsg;
+  if (y) y.textContent = L().ui.pwaYes;
+  if (n) n.textContent = L().ui.pwaNo;
+  bar.classList.remove('hidden');
+}
+(function wirePwa(){
+  const y = document.getElementById('pwaYes');
+  const n = document.getElementById('pwaNo');
+  if (y && y.addEventListener) y.addEventListener('click', () => {
+    if (deferredPrompt && deferredPrompt.prompt) deferredPrompt.prompt();
+    deferredPrompt = null;
+    dismissPwa();
+  });
+  if (n && n.addEventListener) n.addEventListener('click', dismissPwa);
+})();
 
 /* ── Service Worker 快取命中統計 ──────────────────── */
 let cHit = 0, cMiss = 0;

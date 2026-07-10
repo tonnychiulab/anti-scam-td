@@ -376,3 +376,15 @@ body[data-layout="mland"] .wave-btn, body[data-layout="mport"] .wave-btn{
 .bm-actions .pixel-btn{font-size:17px; min-width:150px;}
 .bm-actions .pixel-btn:disabled{background:#3a3a52; color:var(--dim); cursor:default;}
 #bmNo{min-width:64px;}
+
+
+/* ═══ v2.0.0 PWA 安裝提示列 ═══ */
+.pwa-bar{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(12px + env(safe-area-inset-bottom)); z-index:80;
+  display:flex; gap:10px; align-items:center;
+  background:var(--bg2); border:3px solid var(--gold);
+  box-shadow:5px 5px 0 #000; padding:10px 14px;
+  max-width:94vw;
+}
+.pwa-msg{font-family:var(--font-zh); font-size:15px; line-height:1.5;}

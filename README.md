@@ -4,7 +4,7 @@
 
 ### ▶ 立即遊玩 Play Now：**<https://tonnychiulab.github.io/anti-scam-td/>**
 
-手機、平板、電腦皆可玩｜中文・English・Bahasa Indonesia・Tiếng Việt｜免安裝・免註冊・零資料收集
+手機、平板、電腦皆可玩｜中文・English・Bahasa Indonesia・Tiếng Việt｜可加入主畫面（PWA）・免註冊・零資料收集
 
 ## 遊戲截圖
 
@@ -16,7 +16,7 @@
 |---|---|
 | ![強光手電筒橫掃](screenshots/boss.png) | ![破門錘爆擊](screenshots/support.png) |
 
-| 📱 直立手機模式（v2.0-α）：棋盤轉置 12×20，由上而下防守 |
+| 📱 直立手機模式（v2.0）：棋盤轉置 12×20、點地建造面板（圖左為幽靈塔＋射程預覽）、雙指縮放 |
 |---|
 | <img src="screenshots/portrait.png" width="300" alt="直立模式"> |
 
@@ -50,7 +50,11 @@
 
 正式版部署於 GitHub Pages：<https://tonnychiulab.github.io/anti-scam-td/>
 
-想自架或 fork：把 6 個檔案（`index.html`、`style.css`、`game.js`、`i18n.js`、`sw.js`、`README.md`）加上 `screenshots/` 資料夾放到 repo 根目錄（或任何子目錄，路徑全為相對路徑），Settings → Pages → Source 選 `main` branch 即可。歡迎 fork 散播——這是公益作品。
+想自架或 fork：把 `index.html`、`style.css`、`game.js`、`i18n.js`、`sw.js`、`manifest.webmanifest`、`README.md` 加上 `icons/`、`screenshots/` 資料夾放到 repo 根目錄（或任何子目錄，路徑全為相對路徑），Settings → Pages → Source 選 `main` branch 即可。歡迎 fork 散播——這是公益作品。
+
+## 📲 加入主畫面（PWA）
+
+手機開啟遊戲後可安裝成類 App：**Android/Chrome** 過第 3 關後會溫和提示一次（可永久關閉），或用瀏覽器選單「加到主畫面」；**iPhone/Safari** 用「分享 → 加入主畫面」。安裝後全螢幕執行、支援離線遊玩，圖示是金色像素盾牌＋紅心。
 
 ## 多國語系（v1.3.0 MVP）
 
@@ -63,6 +67,7 @@
 
 ## 技術重點
 
+* **行動優先**：直立手機棋盤自動轉置 12×20（中途轉向無損）、點地建造面板、雙指縮放、PWA 可安裝、行動裝置粒子減半＋草地離屏渲染。
 * **RWD**：手機、平板、筆電、桌機皆可玩（pointer events 支援觸控）。
 * **字型**：英文 Press Start 2P、中文 Cubic 11（皆為開源像素字型，Google Fonts CDN）；越南文變音符號自動退回系統字型。
 * **快取**：Service Worker 快取優先策略，右下角即時顯示版本與快取命中率；無 SW 時以 Performance API 估算。
@@ -88,6 +93,7 @@
 
 ## 版本紀錄
 
+* **v2.0.0**（2026-07-10）——🎉 行動裝置大改版正式發佈：**PWA**（manifest＋像素盾牌圖示 192/512/maskable、Android 過第 3 關溫和安裝提示一次且可永久關閉、iOS 不打擾、離線可玩）；行動效能（粒子減半、草刃減量）；直式截圖更新（含建造預覽入鏡）。整合 α（棋盤轉置＋轉向無損＋行動 HUD）與 β（點地建造面板＋雙指縮放）。
 * **v2.0.0-b1**（2026-07-10）——行動裝置大改版 β：**點地建造面板**（手機點空草地→原地彈出 bottom-sheet，只列已解鎖塔、買不起灰顯、幽靈塔＋射程預覽、✓ 確認才扣款）；**雙指縮放平移**（1×–2.5×，單指=操作/雙指=手勢硬區分、12px tap-slop、雙擊回全圖、點擊座標反矩陣映射誤差 <10⁻¹² px）；手機隱藏武器列（桌機流程零改動）。
 * **v2.0.0-a1**（2026-07-10）——行動裝置大改版 α：layoutMode 能力偵測（pointer/orientation）；直立手機棋盤自動轉置為 12×20 縱向迷宮（同種子＝同迷宮轉置版，排行榜不分榜）；**遊戲中途轉動手機無損切換視角**（塔/敵/志工/狀態全轉置，自動暫停 0.6s＋提示）；強光手電筒軸向感知（直立改縱掃）；行動版 UI：特種支援懸浮鈕貼拇指熱區、HUD 壓縮、武器列單排橫滑 dock、safe-area 支援。設計規格見 `docs/DESIGN-v2.md`（β：點地建造面板＋雙指縮放；正式版：PWA）。
 * **v1.6.0**（2026-07-10）——外部審查修正輪（Grok＋CODEX 雙 AI 審查，21 條採納 18 條）：修復幽靈塔選單雙重退款漏洞、同幀多敵漏進只扣一命、塔選單定位錯誤（移入 #stage）、減速/暈眩/標記改用遊戲時間（倍速與暫停行為一致）、聲波環誤畫在銀行行員、損命後清空志工/光束/小幫手並重打本波、放塔獨立驗證解鎖等級、里長光環對齊 +30% 文案、勝利標題四語化、解鎖清單分隔符依語言、生命列以上限 5 顯示、儲存失敗誠實回報、AudioContext 手勢解鎖、草地離屏渲染（行動效能）、SW 改 stale-while-revalidate＋離線導航後備、開放頁面縮放（無障礙）、跨局 setTimeout 世代防護。

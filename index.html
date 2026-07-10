@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- 資安（CIA）：內容安全政策——僅允許自身腳本與 Google Fonts，杜絕外部注入 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'">
 <meta name="referrer" content="no-referrer">
 <meta name="description" content="防詐迷宮塔防：用 165 專線塔、查證雷達與防火牆守住民眾的錢包！87 關像素風公益遊戲。">
 <meta name="theme-color" content="#1b1b2f">
@@ -12,6 +12,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Cubic+11&display=swap" rel="stylesheet">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%231b1b2f'/%3E%3Crect x='3' y='2' width='10' height='12' fill='%23ffd166'/%3E%3Crect x='5' y='5' width='6' height='2' fill='%231b1b2f'/%3E%3Crect x='5' y='9' width='6' height='2' fill='%23ef476f'/%3E%3C/svg%3E">
 </head>
@@ -40,7 +42,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.0-b1</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.0</span></p>
   </div>
 </div>
 
@@ -254,6 +256,13 @@
 </div>
 
 <div id="screenFlash" aria-hidden="true"></div>
+
+<!-- PWA 安裝提示（過第 3 關後一次性、可永久關閉） -->
+<div id="pwaBar" class="pwa-bar hidden">
+  <span id="pwaMsg" class="pwa-msg">📲 把「防詐迷宮」加入主畫面，隨時防詐！</span>
+  <button id="pwaYes" class="pixel-btn mini primary">安裝</button>
+  <button id="pwaNo" class="pixel-btn mini">之後再說</button>
+</div>
 
 <div id="cacheStat" title="版本與靜態資源快取命中率（Service Worker）">CACHE --</div>
 
