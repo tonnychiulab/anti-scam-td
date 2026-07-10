@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v1.4.1';
+const APP_VERSION = 'v1.5.0';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -76,6 +76,9 @@ const SUPPORT = [
   { key:'light', cd:50, unlock:11, color:'#9be7ff' },   // 強光手電筒
 ];
 
+/* ── 草地小幫手（隨機跳出協助的小動物） ──────────── */
+const CRITTERS = ['squirrel','bee','worm','bug'];
+
 /* ── 關卡修飾事件（數值定義；顯示名稱在 i18n.js） ─── */
 const MODS = [
   { key:'none',  spd:1,    range:1,   gold:0, count:1,   hpAdj:1 },
@@ -103,6 +106,7 @@ function newState(){
     playing:false, waveActive:false, over:false, paused:false,
     autoT:0, mod:MODS[0],
     supCd:[0,0,0], beam:null,
+    critter:null, critT: 9 + Math.random()*8,
   };
 }
 
@@ -405,6 +409,74 @@ function useSupport(i, px, py){
   updateHUD();
 }
 
+/* ── 草地小幫手 ───────────────────────────────────── */
+function spawnCritter(){
+  // 找一塊空草地（避開路與塔）
+  for (let tries = 0; tries < 30; tries++){
+    const gx = 1 + Math.floor(Math.random()*(COLS-2));
+    const gy = 1 + Math.floor(Math.random()*(ROWS-2));
+    if (S.grid[gy][gx] !== 0) continue;
+    const k = CRITTERS[Math.floor(Math.random()*CRITTERS.length)];
+    S.critter = { k, x:gx*CELL+CELL/2, y:gy*CELL+CELL/2, t:0, acts:0, actT:1.0, done:false };
+    return;
+  }
+}
+function updateCritter(dt, now){
+  const c = S.critter;
+  c.t += dt;
+  if (c.k === 'squirrel'){                      // 松鼠：丟 3 顆橡果攻擊最近的詐騙
+    c.actT -= dt;
+    if (c.actT <= 0 && c.acts < 3){
+      let best = null, bd = 240*240;
+      for (const e of S.enemies){
+        if (e.dead) continue;
+        const d = (e.x-c.x)**2 + (e.y-c.y)**2;
+        if (d < bd){ bd = d; best = e; }
+      }
+      if (best){
+        S.projs.push({ x:c.x, y:c.y-8, tx:best, dmg:6, spd:400, color:'#b06f37', ti:-1, splash:0, slow:0, slowT:0, stun:0, bounty:0, mark:0, knock:0, execute:0 });
+        if (!c.acts) S.fx.push({ txt:L().critters.squirrel, x:c.x, y:c.y-26, life:1.2 });
+        c.acts++; c.actT = .65;
+        sfx(700,.05,'triangle');
+      }
+    }
+    if (c.t > 4) c.done = true;
+  } else if (!c.acts && c.t > .9){              // 其他三種：現身後做一次好事
+    c.acts = 1;
+    if (c.k === 'bee'){                         // 蜜蜂：螫最近的詐騙（傷害＋減速）
+      let best = null, bd = 260*260;
+      for (const e of S.enemies){
+        if (e.dead) continue;
+        const d = (e.x-c.x)**2 + (e.y-c.y)**2;
+        if (d < bd){ bd = d; best = e; }
+      }
+      if (best){
+        hitEnemy(best, 5, null);
+        best.slowUntil = now + 1400; best.slowPct = .5;
+        S.fx.push({ zap:true, x1:c.x, y1:c.y-6, x2:best.x, y2:best.y, life:.2, color:'#f5c211' });
+      }
+      S.fx.push({ txt:L().critters.bee, x:c.x, y:c.y-26, life:1.2 });
+      sfx(900,.08,'triangle');
+    } else if (c.k === 'worm'){                 // 蚯蚓：翻土翻出零錢
+      S.coins += 8;
+      burst(c.x, c.y, '#ffd166', 8);
+      S.fx.push({ txt:L().critters.worm, x:c.x, y:c.y-26, life:1.2 });
+      sfx(500,.08);
+    } else {                                    // 瓢蟲：幸運 +1 血
+      S.hp = Math.min(HP_CAP, S.hp + 1);
+      burst(c.x, c.y, '#9be79b', 8);
+      S.fx.push({ txt:L().critters.bug, x:c.x, y:c.y-26, life:1.2 });
+      sfx(660,.08); 
+    }
+  }
+  if (c.t > 3.6 && c.k !== 'squirrel') c.done = true;
+  if (c.done){
+    burst(c.x, c.y+6, '#4caf50', 5);            // 鑽回草叢
+    S.critter = null;
+    S.critT = 11 + Math.random()*11;
+  }
+}
+
 /* ── 主迴圈 ───────────────────────────────────────── */
 function loop(ts){
   raf = requestAnimationFrame(loop);
@@ -415,6 +487,11 @@ function loop(ts){
   if (hitStop > 0){ hitStop -= rawDt; dt *= .22; }   // 破門錘慢動作
   const now = performance.now();
   for (let i = 0; i < 3; i++) if (S.supCd[i] > 0) S.supCd[i] = Math.max(0, S.supCd[i] - dt);
+  // 草地小幫手
+  if (!S.critter){
+    S.critT -= dt;
+    if (S.critT <= 0 && S.waveActive) spawnCritter();
+  } else updateCritter(dt, now);
   // 強光手電筒光束
   if (S.beam){
     const b = S.beam;
@@ -697,6 +774,8 @@ function draw(){
   for (const e of S.enemies) drawEnemy(e);
   // 志工
   for (const a of S.allies) drawAlly(a);
+  // 草地小幫手
+  if (S.critter) drawCritter(S.critter);
   // 投射物
   for (const p of S.projs){
     ctx.fillStyle = p.color;
@@ -753,6 +832,47 @@ function draw(){
     ctx.fillRect(bx-3, 0, 6, H);
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+function drawCritter(c){
+  const pop = Math.min(1, c.t * 3);                      // 冒出草叢
+  const y = c.y + (1 - pop) * 10;
+  const wig = Math.sin(c.t * 7) * 1.5;
+  ctx.save();
+  ctx.globalAlpha = c.t > 3.2 && c.k !== 'squirrel' ? Math.max(0, (3.6 - c.t) / .4) : 1;
+  if (c.k === 'squirrel'){
+    ctx.fillStyle = '#8a5a2b';                           // 尾巴
+    ctx.fillRect(c.x + 6, y - 12 + wig, 5, 10);
+    ctx.fillStyle = '#b06f37';                           // 身體
+    ctx.fillRect(c.x - 8, y - 6, 13, 10);
+    ctx.fillRect(c.x - 10, y - 10, 8, 7);                // 頭
+    ctx.fillStyle = '#1b1b2f';
+    ctx.fillRect(c.x - 8, y - 8, 2, 2);                  // 眼
+    ctx.fillStyle = '#ffd9b3';
+    ctx.fillRect(c.x - 4, y + 1, 5, 3);                  // 肚
+  } else if (c.k === 'bee'){
+    const fy = y - 6 + wig;
+    ctx.fillStyle = 'rgba(240,248,255,.85)';             // 翅膀
+    ctx.fillRect(c.x - 2, fy - 6, 4, 4); ctx.fillRect(c.x + 3, fy - 6, 4, 4);
+    ctx.fillStyle = '#f5c211';                           // 身體
+    ctx.fillRect(c.x - 6, fy, 12, 7);
+    ctx.fillStyle = '#1b1b2f';                           // 條紋與眼
+    ctx.fillRect(c.x - 3, fy, 2, 7); ctx.fillRect(c.x + 1, fy, 2, 7);
+    ctx.fillRect(c.x + 4, fy + 2, 2, 2);
+  } else if (c.k === 'worm'){
+    ctx.fillStyle = '#e78ea9';                           // 三節蚯蚓，扭動
+    for (let i = 0; i < 3; i++)
+      ctx.fillRect(c.x - 7 + i*5, y - 2 + Math.sin(c.t*7 + i)*2.5, 5, 5);
+    ctx.fillStyle = '#1b1b2f';
+    ctx.fillRect(c.x + 4, y - 2 + Math.sin(c.t*7 + 2)*2.5, 1.5, 1.5);
+  } else {                                               // 瓢蟲
+    ctx.fillStyle = '#ef476f';
+    ctx.fillRect(c.x - 5, y - 5 + wig*.5, 10, 8);
+    ctx.fillStyle = '#1b1b2f';
+    ctx.fillRect(c.x - 1, y - 5 + wig*.5, 2, 8);          // 中線
+    ctx.fillRect(c.x - 4, y - 3 + wig*.5, 2, 2); ctx.fillRect(c.x + 2, y - 2 + wig*.5, 2, 2); // 斑點
+    ctx.fillRect(c.x - 7, y - 6 + wig*.5, 3, 4);          // 頭
+  }
   ctx.restore();
 }
 function drawAlly(a){

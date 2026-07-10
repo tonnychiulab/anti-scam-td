@@ -91,7 +91,7 @@ body{
 #gameWrap{display:flex; flex-direction:column; min-height:100dvh; align-items:center;}
 #hud{
   display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; justify-content:center;
-  width:100%; max-width:1000px; padding:10px 12px;
+  width:100%; max-width:1560px; padding:8px 12px;
   font-size:15px;
 }
 .hud-item{
@@ -104,11 +104,11 @@ body{
 /* ── 特種部隊支援列 ───────────────────── */
 #supportBar{
   display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap;
-  width:100%; max-width:1000px; padding:4px 12px 10px;
+  width:100%; max-width:1560px; padding:2px 12px 8px;
 }
 .sup-lbl{font-family:var(--font-zh); font-size:15px; color:var(--dim);}
-.sup-btn{flex-direction:column; gap:2px; min-width:96px; padding:6px 12px;}
-.sup-btn .se{font-size:24px; line-height:1.1;}
+.sup-btn{flex-direction:column; gap:1px; min-width:92px; padding:4px 10px;}
+.sup-btn .se{font-size:20px; line-height:1.1;}
 .sup-btn .sn{font-family:var(--font-zh); font-size:13px;}
 .sup-btn .cd{font-size:11px; color:var(--gold);}
 .sup-btn.locked{filter:grayscale(1) brightness(.55);}
@@ -125,9 +125,12 @@ body{
 @keyframes bigFlash{0%{opacity:1;} 100%{opacity:0;}}
 
 /* ── 遊戲畫布 ─────────────────────────── */
-#stage{position:relative; width:100%; max-width:1000px; padding:0 12px;}
+#stage{position:relative; width:100%; max-width:1560px; padding:0 12px;}
 #cv{
-  display:block; width:100%; height:auto;
+  display:block; width:auto; height:auto; margin:0 auto;
+  max-width:100%;
+  max-height:calc(100dvh - 360px);   /* 扣掉 HUD＋特種支援列＋商店列，整體一屏內 */
+  min-height:220px;
   border:var(--px) solid var(--ink); box-shadow:6px 6px 0 #000;
   image-rendering:pixelated;
   background:#20203a;
@@ -144,12 +147,12 @@ body{
 
 /* ── 商店列 ───────────────────────────── */
 #shop{
-  display:flex; flex-wrap:wrap; gap:10px; justify-content:center;
-  width:100%; max-width:1000px; padding:12px;
+  display:flex; flex-wrap:wrap; gap:8px; justify-content:center;
+  width:100%; max-width:1560px; padding:8px 12px 12px;
 }
-.tower-btn{flex-direction:column; gap:3px; min-width:96px; padding:8px 10px;}
+.tower-btn{flex-direction:column; gap:2px; min-width:92px; padding:6px 8px;}
 .tower-btn.locked{filter:grayscale(1) brightness(.55);}
-.tower-btn .tn{font-size:16px;}
+.tower-btn .tn{font-size:14px;}
 .tower-btn .tc{font-size:12px; color:var(--gold);}
 .wave-btn{min-width:120px; font-size:19px;}
 
@@ -245,6 +248,7 @@ body{
 
 /* ═══════════ RWD ═══════════ */
 @media (max-width:768px){
+  #cv{width:100%; max-height:none;}
   .pixel-btn{font-size:16px;}
   .game-title .zh{font-size:34px;}
   #hud{font-size:12px; gap:6px 8px; padding:8px 6px;}
