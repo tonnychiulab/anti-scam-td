@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v1.5.0';
+const APP_VERSION = 'v1.6.0';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -47,7 +47,7 @@ const TOWERS = [
   { name:'警察',       cost:120, range:125, dmg:18, rate:1.2, color:'#1a5fb4', glyph:'👮', stun:.6, unlock:1 },
   { name:'宣導廣播',   cost:140, range:185, dmg:26, rate:1.5, color:'#ef476f', glyph:'📢', unlock:1 },
   /* ── 隨關卡解鎖的進階武器 ── */
-  { name:'里長廣播站', cost:110, range:120, dmg:0,  rate:0,   color:'#ff9e36', glyph:'🔊', buff:.7,  unlock:5  },  // 範圍內塔攻速+30%
+  { name:'里長廣播站', cost:110, range:120, dmg:0,  rate:0,   color:'#ff9e36', glyph:'🔊', buff:1/1.3, unlock:5 },  // 範圍內塔攻速+30%（冷卻×0.769）
   { name:'記者爆料塔', cost:130, range:135, dmg:2,  rate:.9,  color:'#c061cb', glyph:'📰', mark:2.5, unlock:8  },  // 被標記者受傷+50%
   { name:'現身說法志工',cost:180, range:110, dmg:0,  rate:0,   color:'#ffd166', glyph:'🎗', convert:.35, unlock:10 }, // 陣亡詐騙轉化為志工
   { name:'電信攔截塔', cost:150, range:140, dmg:80, rate:6,   color:'#00b8a9', glyph:'📵', zap:true, unlock:13 },  // 定期已讀刪除最弱詐騙
@@ -96,6 +96,7 @@ let speedIdx = 0; const SPEEDS = [1,2,3];
 let muted = false;
 let raf = 0, lastT = 0;
 let selSup = -1;       // 支援瞄準模式
+let runGen = 0;        // 局次世代：舊局的 setTimeout 回呼不得影響新局
 let hitStop = 0;       // 慢動作剩餘秒數
 
 function newState(){
@@ -112,6 +113,7 @@ function newState(){
 
 /* ── 迷宮路徑產生（seed = 關卡編號） ───────────────── */
 function genLevel(lv){
+  closeTowerMenu();            // 防幽靈塔選單（換關後殘留的雙重退款漏洞）
   const rng = RNG(lv * 7919 + 12345);
   const cells = [];
   let r = 2 + Math.floor(rng() * (ROWS - 4)), c = 0;
@@ -136,6 +138,7 @@ function genLevel(lv){
   const mrng = RNG(lv*2654435761 + 97);
   mrng(); mrng();  // 混合種子，避免低位偏差
   S.mod = (lv < 5 || lv % 10 === 0) ? MODS[0] : MODS[Math.floor(mrng()*MODS.length)];
+  buildGround();
   buildWave(lv);
 }
 
@@ -169,11 +172,11 @@ function spawnEnemy(item){
   S.enemies.push({
     ti:item.ti, hp:t.hp*item.hpMul, hpMax:t.hp*item.hpMul,
     seg:0, prog:0, x:S.path[0][0]*CELL+CELL/2, y:S.path[0][1]*CELL+CELL/2,
-    spd:t.spd, slowUntil:0, slowPct:0, dead:false, wob:Math.random()*6.28,
+    spd:t.spd, slowLeft:0, slowPct:0, markLeft:0, dead:false, wob:Math.random()*6.28,
   });
 }
 function moveEnemy(e, dt){
-  let sp = e.spd * S.mod.spd * (performance.now() < e.slowUntil ? (1 - e.slowPct) : 1);
+  let sp = e.spd * S.mod.spd * (e.slowLeft > 0 ? (1 - e.slowPct) : 1);
   let dist = sp * dt;
   while (dist > 0 && e.seg < S.path.length - 1){
     const [ax,ay] = S.path[e.seg], [bx,by] = S.path[e.seg+1];
@@ -239,12 +242,13 @@ function towerAct(t, dt, now){
     slow:spec.slow||0, slowT:spec.slowT||0,
     stun:spec.stun||0, bounty:spec.bounty||0,
     mark:spec.mark||0, knock:spec.knock||0, execute:spec.execute||0,
+    wave:spec.glyph === '📢',
   });
   sfx(spec.glyph==='📢'?200:420+t.ti*60, .04);
 }
 
 function hitEnemy(e, dmg, src){
-  if (e.markUntil && performance.now() < e.markUntil) dmg *= 1.5;  // 記者爆料：已曝光傷害+50%
+  if (e.markLeft > 0) dmg *= 1.5;  // 記者爆料：已曝光傷害+50%
   e.hp -= dmg;
   if (src && src.bounty) S.coins += src.bounty;   // 行員攔阻匯款：命中回收點數
   const t = ETYPES[e.ti];
@@ -294,9 +298,9 @@ function moveProj(p, dt){
     } else {
       hitEnemy(e, p.dmg, p);
     }
-    if (p.slow){ e.slowUntil = performance.now() + p.slowT*1000; e.slowPct = p.slow; }
-    if (p.stun){ e.slowUntil = performance.now() + p.stun*1000; e.slowPct = 1; } // 警察逮捕：原地暈眩
-    if (p.mark){ e.markUntil = performance.now() + p.mark*1000; }                // 記者：貼上「已曝光」
+    if (p.slow){ e.slowLeft = Math.max(e.slowLeft, p.slowT); e.slowPct = p.slow; }
+    if (p.stun){ e.slowLeft = Math.max(e.slowLeft, p.stun); e.slowPct = 1; } // 警察逮捕：原地暈眩
+    if (p.mark){ e.markLeft = Math.max(e.markLeft, p.mark); }                // 記者：貼上「已曝光」
     if (p.knock && !ETYPES[e.ti].boss && !e.dead){                               // 阿嬤：罵到倒退嚕
       e.seg = Math.max(0, e.seg - p.knock); e.prog = 0;
     }
@@ -321,6 +325,7 @@ function sfx(freq, dur, type='square'){
   if (muted) return;
   try{
     AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    if (AC.state === 'suspended' && AC.resume) AC.resume();
     const o = AC.createOscillator(), g = AC.createGain();
     o.type = type; o.frequency.value = freq;
     g.gain.setValueAtTime(.06, AC.currentTime);
@@ -335,6 +340,7 @@ function sfxBoom(freq){
   if (muted) return;
   try{
     AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    if (AC.state === 'suspended' && AC.resume) AC.resume();
     const t0 = AC.currentTime;
     const o = AC.createOscillator(), g = AC.createGain();
     o.type = 'sine';
@@ -392,11 +398,10 @@ function useSupport(i, px, py){
     screenFlash('rgba(255,255,255,.9)');
     sfxBoom(180);
     S.fx.push({ ring:true, x:px, y:py, r:10, max:170, dur:.5, life:.5, color:'#ffffff' });
-    const until = performance.now() + 2500;
     const dmg = 35 + S.level * 2;
     for (const e of S.enemies){
       if (e.dead) continue;
-      e.slowUntil = until; e.slowPct = 1;
+      e.slowLeft = 2.5; e.slowPct = 1;
       if ((e.x-px)**2 + (e.y-py)**2 <= 140*140) hitEnemy(e, dmg, null);
     }
   } else {
@@ -452,7 +457,7 @@ function updateCritter(dt, now){
       }
       if (best){
         hitEnemy(best, 5, null);
-        best.slowUntil = now + 1400; best.slowPct = .5;
+        best.slowLeft = 1.4; best.slowPct = .5;
         S.fx.push({ zap:true, x1:c.x, y1:c.y-6, x2:best.x, y2:best.y, life:.2, color:'#f5c211' });
       }
       S.fx.push({ txt:L().critters.bee, x:c.x, y:c.y-26, life:1.2 });
@@ -501,7 +506,7 @@ function loop(ts){
       if (e.dead || b.hit.has(e)) continue;
       if (Math.abs(e.x - b.x) < 28){
         b.hit.add(e);
-        e.markUntil = now + 4000;
+        e.markLeft = 4;
         hitEnemy(e, dmg, null);
       }
     }
@@ -526,13 +531,15 @@ function loop(ts){
   for (const e of S.enemies){
     if (e.dead) continue;
     e.wob += dt*8;
+    if (e.slowLeft > 0) e.slowLeft -= dt;   // 狀態效果以遊戲時間計
+    if (e.markLeft > 0) e.markLeft -= dt;
     if (moveEnemy(e, dt)){
       e.dead = true;
       S.hp -= ETYPES[e.ti].dmg;
       burst(e.x, e.y, '#ff5555', 12);
       sfx(60, .25, 'sawtooth');
       shake(6);
-      if (S.hp <= 0) loseLife();
+      if (S.hp <= 0){ loseLife(); break; }   // 一幀最多扣一命（loseLife 已重置敵人陣列）
     }
   }
   S.enemies = S.enemies.filter(e => !e.dead);
@@ -584,14 +591,16 @@ function loseLife(){
   S.lives--;
   if (S.lives <= 0){ gameOver(false); return; }
   S.hp = HP_START;
-  S.enemies = []; S.projs = [];
+  S.enemies = []; S.projs = []; S.allies = []; S.beam = null;
+  S.critter = null; S.critT = 9 + Math.random()*8;
+  buildWave(S.level);          // 重打本關整波（不會出現「損命後立刻過關」）
+  S.waveActive = true;
   banner(fmt(L().ui.lifeLost, {n:S.lives}));
-  S.waveActive = true; // 繼續當前波剩餘的怪
 }
 function gameOver(win){
   S.over = true;
   const t = document.getElementById('endTitle');
-  t.textContent = win ? '🏆 YOU WIN!' : L().ui.loseTitle;
+  t.textContent = win ? L().ui.winTitle : L().ui.loseTitle;
   // 敗北＝最接近受害者的時刻：切換為安慰提醒場景，絕不嘲諷
   const panel = document.querySelector('#endScreen .panel');
   if (panel && panel.classList) panel.classList.toggle('lose', !win);
@@ -641,7 +650,7 @@ function afterQuiz(){
   }
   const news = TOWERS.map((t,i) => ({t,i})).filter(o => o.t.unlock === S.level);
   banner(news.length
-    ? fmt(L().ui.unlockBanner, {names:news.map(o => L().towers[o.i]).join('、'), mod:modTag})
+    ? fmt(L().ui.unlockBanner, {names:news.map(o => L().towers[o.i]).join(LANG === 'zh' ? '、' : ', '), mod:modTag})
     : fmt(L().ui.stageBanner, {lv:S.level, boss:S.level%10===0?L().ui.bossTag:'', mod:modTag}));
   if (news.length){ sfx(520,.1); sfx(780,.1); sfx(1040,.15); }
   updateHUD();
@@ -657,8 +666,9 @@ function playClearFx(cb){
   document.getElementById('clearTip').textContent = '💡 ' + L().tips[(S.level - 1) % L().tips.length];
   fx.classList.remove('hidden','out');
   sfx(660,.1); setTimeout(()=>sfx(880,.12),120); setTimeout(()=>sfx(1180,.2),260);
-  setTimeout(() => fx.classList.add('out'), 2000);
-  setTimeout(() => { fx.classList.add('hidden'); cb(); }, 2350);
+  const gen = runGen;
+  setTimeout(() => { if (gen !== runGen) return; fx.classList.add('out'); }, 2000);
+  setTimeout(() => { if (gen !== runGen) return; fx.classList.add('hidden'); cb(); }, 2350);
 }
 
 /* ── 續命測驗（避開詐騙 → +1 命） ─────────────────── */
@@ -698,7 +708,8 @@ function showQuiz(cb){
       sfx(70,.3,'sawtooth');
     }
     updateHUD();
-    setTimeout(() => { hide('quizScreen'); cb(); }, 2600);
+    const gen = runGen;
+    setTimeout(() => { if (gen !== runGen) return; hide('quizScreen'); cb(); }, 2600);
   };
   bGood.onclick = () => done(true);
   bBad.onclick  = () => done(false);
@@ -709,50 +720,66 @@ function showQuiz(cb){
 let shakeAmt = 0;
 function shake(n){ shakeAmt = n; }
 
+/* 地面繪製（草地＋泥徑）：可畫到離屏畫布或主畫布 */
+let groundCv = null;
+function paintGround(g){
+  for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++){
+    const px = x*CELL, py = y*CELL;
+    g.fillStyle = (x+y)%2 ? '#3d8b40' : '#378039';
+    g.fillRect(px, py, CELL, CELL);
+    if (S.grid[y][x] === 1) continue;              // 路面另外畫
+    let h = ((x*73856093) ^ (y*19349663) ^ 0x9e3779b9) >>> 0;
+    const rnd = () => { h = (h*1664525+1013904223)>>>0; return h/4294967296; };
+    const blades = 4 + Math.floor(rnd()*4);        // 草刃（深淺兩層）
+    for (let i=0;i<blades;i++){
+      const bx = px + 4 + rnd()*(CELL-10);
+      const by = py + 6 + rnd()*(CELL-14);
+      g.fillStyle = rnd() < .5 ? '#4caf50' : '#2e6b31';
+      g.fillRect(bx, by, 2, 5 + rnd()*4);
+      g.fillRect(bx+2, by+2, 2, 3);
+    }
+    const r = rnd();                               // 偶爾一朵小花／碎石
+    if (r < .07){
+      const fx2 = px + 8 + rnd()*(CELL-18), fy2 = py + 8 + rnd()*(CELL-18);
+      g.fillStyle = r < .04 ? '#ffd166' : '#f4f1e8';
+      g.fillRect(fx2, fy2, 4, 4);
+      g.fillStyle = '#e05d3f';
+      if (r < .02) g.fillRect(fx2+1, fy2+1, 2, 2);
+    }
+  }
+  for (const [x,y] of S.path){                     // 泥土小徑＋磚縫＋草沿邊
+    g.fillStyle = '#c9a86a';
+    g.fillRect(x*CELL+2, y*CELL+2, CELL-4, CELL-4);
+    g.fillStyle = '#b08f52';
+    g.fillRect(x*CELL+2, y*CELL+CELL/2-1, CELL-4, 2);
+    g.fillRect(x*CELL+CELL/2-1, y*CELL+2, 2, CELL/2-2);
+    g.fillStyle = '#2e6b31';
+    g.fillRect(x*CELL, y*CELL, CELL, 2);
+    g.fillRect(x*CELL, y*CELL+CELL-2, CELL, 2);
+  }
+}
+function buildGround(){
+  try{
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g2 = c.getContext && c.getContext('2d');
+    if (!g2 || typeof g2.fillRect !== 'function'){ groundCv = null; return; }
+    paintGround(g2);
+    groundCv = c;
+  }catch(e){ groundCv = null; }
+}
+
 function draw(){
   ctx.save();
   if (shakeAmt > .5){
     ctx.translate((Math.random()-.5)*shakeAmt, (Math.random()-.5)*shakeAmt);
     shakeAmt *= .88;
   }
-  // 地面：仿真像素草地（兩色棋盤＋草叢、草刃、小花，種子固定不閃爍）
-  for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++){
-    const px = x*CELL, py = y*CELL;
-    ctx.fillStyle = (x+y)%2 ? '#3d8b40' : '#378039';
-    ctx.fillRect(px, py, CELL, CELL);
-    if (S.grid[y][x] === 1) continue;              // 路面另外畫
-    let h = ((x*73856093) ^ (y*19349663) ^ 0x9e3779b9) >>> 0;
-    const rnd = () => { h = (h*1664525+1013904223)>>>0; return h/4294967296; };
-    // 草刃（深淺兩層）
-    const blades = 4 + Math.floor(rnd()*4);
-    for (let i=0;i<blades;i++){
-      const bx = px + 4 + rnd()*(CELL-10);
-      const by = py + 6 + rnd()*(CELL-14);
-      ctx.fillStyle = rnd() < .5 ? '#4caf50' : '#2e6b31';
-      ctx.fillRect(bx, by, 2, 5 + rnd()*4);
-      ctx.fillRect(bx+2, by+2, 2, 3);
-    }
-    // 偶爾一朵小花／碎石
-    const r = rnd();
-    if (r < .07){
-      const fx2 = px + 8 + rnd()*(CELL-18), fy2 = py + 8 + rnd()*(CELL-18);
-      ctx.fillStyle = r < .04 ? '#ffd166' : '#f4f1e8';
-      ctx.fillRect(fx2, fy2, 4, 4);
-      ctx.fillStyle = '#e05d3f';
-      if (r < .02) ctx.fillRect(fx2+1, fy2+1, 2, 2);
-    }
-  }
-  // 路（泥土小徑 + 磚縫，與綠草對比）
-  for (const [x,y] of S.path){
-    ctx.fillStyle = '#c9a86a';
-    ctx.fillRect(x*CELL+2, y*CELL+2, CELL-4, CELL-4);
-    ctx.fillStyle = '#b08f52';
-    ctx.fillRect(x*CELL+2, y*CELL+CELL/2-1, CELL-4, 2);
-    ctx.fillRect(x*CELL+CELL/2-1, y*CELL+2, 2, CELL/2-2);
-    ctx.fillStyle = '#2e6b31';                     // 草沿邊
-    ctx.fillRect(x*CELL, y*CELL, CELL, 2);
-    ctx.fillRect(x*CELL, y*CELL+CELL-2, CELL, 2);
-  }
+  // 地面：離屏快取（每關只繪一次；不支援離屏時直接畫）
+  if (groundCv){
+    try{ ctx.drawImage(groundCv, 0, 0); }
+    catch(e){ groundCv = null; paintGround(ctx); }
+  } else paintGround(ctx);
   // 起點傳送門
   const [sx,sy] = S.path[0];
   drawPortal(sx*CELL+CELL/2, sy*CELL+CELL/2);
@@ -779,7 +806,7 @@ function draw(){
   // 投射物
   for (const p of S.projs){
     ctx.fillStyle = p.color;
-    if (p.ti === 3){ // 廣播：聲波環
+    if (p.wave){ // 宣導廣播：聲波環
       ctx.strokeStyle = p.color; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(p.x, p.y, 8, -1, 1); ctx.stroke();
       ctx.beginPath(); ctx.arc(p.x, p.y, 13, -.8, .8); ctx.stroke();
@@ -945,12 +972,12 @@ function drawEnemy(e){
   ctx.font = `${t.boss?16:10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText(t.face, x, y - s + 7);
   // 減速標記
-  if (performance.now() < e.slowUntil){
+  if (e.slowLeft > 0){
     ctx.fillStyle = 'rgba(80,160,255,.6)';
     ctx.fillRect(x-s, y-s, s*2, 4);
   }
   // 已曝光標記（記者爆料）
-  if (e.markUntil && performance.now() < e.markUntil){
+  if (e.markLeft > 0){
     ctx.fillStyle = '#c061cb';
     ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
     ctx.fillText('!', x + s + 6, y - s + 4);
@@ -971,7 +998,7 @@ function updateHUD(){
   $('lvNow').textContent = S.level;
   $('hpNow').textContent = S.hp;
   $('livesNow').textContent =
-    '💛'.repeat(Math.max(0, S.lives)) + '🖤'.repeat(Math.max(0, LIVES_START - S.lives));
+    '💛'.repeat(Math.max(0, S.lives)) + '🖤'.repeat(Math.max(0, LIVES_CAP - S.lives));
   $('coinNow').textContent = S.coins;
   $('scoreNow').textContent = S.score;
   document.querySelectorAll('.tower-btn').forEach((b,i) => {
@@ -1032,6 +1059,7 @@ cv.addEventListener('pointerdown', ev => {
   closeTowerMenu();
   if (selShop >= 0 && S.grid[gy][gx] === 0){
     const spec = TOWERS[selShop];
+    if (S.level < (spec.unlock || 1)){ selShop = -1; updateHUD(); return; }  // 規則層防護，不信任 UI 狀態
     if (S.coins >= spec.cost){
       S.coins -= spec.cost;
       S.towers.push({
@@ -1065,7 +1093,8 @@ function openTowerMenu(t){
 }
 function closeTowerMenu(){ selTower = null; $('towerMenu').classList.add('hidden'); }
 $('tmUp').addEventListener('click', () => {
-  const t = selTower; if (!t) return;
+  const t = selTower;
+  if (!t || !S.towers.includes(t)){ closeTowerMenu(); return; }  // 幽靈塔防護
   const spec = TOWERS[t.ti];
   const upCost = Math.round(spec.cost * .8 * t.lv);
   if (t.lv >= MAX_TLV || S.coins < upCost) return;
@@ -1075,7 +1104,8 @@ $('tmUp').addEventListener('click', () => {
   openTowerMenu(t); updateHUD();
 });
 $('tmSell').addEventListener('click', () => {
-  const t = selTower; if (!t) return;
+  const t = selTower;
+  if (!t || !S.towers.includes(t)){ closeTowerMenu(); return; }  // 幽靈塔防護
   S.coins += Math.round(t.invested * .7);
   S.grid[t.gy][t.gx] = 0;
   S.towers = S.towers.filter(o => o !== t);
@@ -1148,11 +1178,16 @@ $('btnSaveScore').addEventListener('click', () => {
   const list = loadBoard();
   list.push({ n:name, s:S.score, lv:S.level, d:Date.now() });
   list.sort((a,b) => b.s - a.s);
+  let saved = true;
   try { localStorage.setItem(LB_KEY, JSON.stringify(list.slice(0,10))); }
-  catch(e){ /* 可用性防護：私密模式或空間不足時不中斷流程 */ }
-  $('btnSaveScore').disabled = true;
-  $('btnSaveScore').textContent = L().ui.btnSaved;
-  renderBoard(); show('boardScreen');
+  catch(e){ saved = false; }   // 私密模式／空間不足
+  if (saved){
+    $('btnSaveScore').disabled = true;
+    $('btnSaveScore').textContent = L().ui.btnSaved;
+    renderBoard(); show('boardScreen');
+  } else {
+    $('btnSaveScore').textContent = L().ui.btnSaveFail;  // 誠實回報，按鈕保持可再試
+  }
 });
 
 /* ── 套用語言到靜態介面 ───────────────────────────── */
@@ -1205,6 +1240,11 @@ applyI18n();
 
 /* ── 畫面切換 ─────────────────────────────────────── */
 $('btnStart').addEventListener('click', () => {
+  // 行動瀏覽器音訊解鎖：在使用者手勢中建立/喚醒 AudioContext
+  try{
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if (AC && AC.resume) AC.resume();
+  }catch(e){}
   hide('startScreen');
   $('gameWrap').classList.remove('hidden');
   startGame();
@@ -1216,10 +1256,16 @@ document.querySelector('.close-board').addEventListener('click', () => hide('boa
 $('btnRetry').addEventListener('click', () => { hide('endScreen'); startGame(); });
 
 function startGame(){
+  runGen++;                                     // 讓上一局的 setTimeout 全部失效
   S = newState();
   quizUsed = [];
   selShop = -1; selTower = null; speedIdx = 0; selSup = -1; hitStop = 0;
+  closeTowerMenu();
+  hide('quizScreen');
+  const fx = document.getElementById('stageClear');
+  if (fx) fx.classList.add('hidden');
   $('btnSpeed').textContent = '▶×1';
+  $('btnPause').textContent = '❚❚';
   genLevel(1);
   S.autoT = 15;                       // 第 1 關給新手多一點佈陣時間
   banner(L().ui.startBanner);

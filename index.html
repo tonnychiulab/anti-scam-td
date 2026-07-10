@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- 資安（CIA）：內容安全政策——僅允許自身腳本與 Google Fonts，杜絕外部注入 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'">
 <meta name="referrer" content="no-referrer">
@@ -40,7 +40,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.5.0</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.6.0</span></p>
   </div>
 </div>
 
@@ -93,6 +93,12 @@
   <main id="stage">
     <canvas id="cv" width="960" height="576"></canvas>
     <div id="waveBanner" class="wave-banner hidden"></div>
+    <!-- 塔操作面板（在 #stage 內：position 計算才正確） -->
+    <div id="towerMenu" class="tower-menu hidden">
+      <div id="tmName" class="tm-name"></div>
+      <button id="tmUp" class="pixel-btn mini"><span id="tmUpLbl">升級</span> 🪙<span id="tmUpCost"></span></button>
+      <button id="tmSell" class="pixel-btn mini danger"><span id="tmSellLbl">拆除</span> +🪙<span id="tmSellGain"></span></button>
+    </div>
   </main>
 
   <footer id="shop">
@@ -151,12 +157,6 @@
     <button id="btnNextWave" class="pixel-btn primary wave-btn">出怪 ▶</button>
   </footer>
 
-  <!-- 塔操作面板 -->
-  <div id="towerMenu" class="tower-menu hidden">
-    <div id="tmName" class="tm-name"></div>
-    <button id="tmUp" class="pixel-btn mini"><span id="tmUpLbl">升級</span> 🪙<span id="tmUpCost"></span></button>
-    <button id="tmSell" class="pixel-btn mini danger"><span id="tmSellLbl">拆除</span> +🪙<span id="tmSellGain"></span></button>
-  </div>
 </div>
 
 <!-- ══════════ 避開詐騙（續命）彈窗 ══════════ -->
