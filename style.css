@@ -221,6 +221,21 @@ body{
 .board-list li span.pt{float:right; color:#9be79b;}
 .board-note{font-size:13px; color:var(--dim); margin-bottom:12px;}
 
+/* ── 敗北安慰場景（不嘲諷，給溫度） ────── */
+.end-art{
+  width:min(300px, 70vw); display:block; margin:4px auto 2px;
+  image-rendering:pixelated;
+}
+.end-comfort{
+  text-align:left; font-family:var(--font-zh),var(--font-en),sans-serif;
+  font-size:17px; line-height:1.85; color:#dbe9f7;
+  background:#18263a; border:2px solid #7fb3d5;
+  padding:14px 18px; margin:12px 0 16px;
+}
+.end-comfort b{color:var(--gold);}
+#endScreen .panel.lose{border-color:#7fb3d5; box-shadow:8px 8px 0 #0a1420;}
+#endScreen .panel.lose h2{color:#9ecbff;}
+
 /* ── 快取狀態 ─────────────────────────── */
 #cacheStat{
   position:fixed; right:8px; bottom:8px; z-index:40;

@@ -1,7 +1,7 @@
 /* 防詐迷宮 Service Worker — 快取優先策略＋命中率回報
    相對路徑設計，可直接部署 GitHub Pages 子目錄 */
 'use strict';
-const CACHE = 'asmd-v1.4.0';   // 與 game.js 的 APP_VERSION 同步遞增，確保更新後不吃舊快取
+const CACHE = 'asmd-v1.4.1';   // 與 game.js 的 APP_VERSION 同步遞增，確保更新後不吃舊快取
 const ASSETS = ['./', './index.html', './style.css', './game.js', './i18n.js'];
 
 self.addEventListener('install', ev => {

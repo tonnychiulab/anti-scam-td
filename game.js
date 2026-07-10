@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v1.4.0';
+const APP_VERSION = 'v1.4.1';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -514,14 +514,29 @@ function loseLife(){
 function gameOver(win){
   S.over = true;
   const t = document.getElementById('endTitle');
-  t.textContent = win ? '🏆 YOU WIN!' : 'GAME OVER';
+  t.textContent = win ? '🏆 YOU WIN!' : L().ui.loseTitle;
+  // 敗北＝最接近受害者的時刻：切換為安慰提醒場景，絕不嘲諷
+  const panel = document.querySelector('#endScreen .panel');
+  if (panel && panel.classList) panel.classList.toggle('lose', !win);
+  const art = document.getElementById('endArt');
+  if (art) art.classList.toggle('hidden', win);
+  const cf = document.getElementById('endComfort');
+  if (cf){
+    cf.classList.toggle('hidden', win);
+    if (!win) cf.innerHTML = L().ui.loseComfort;
+  }
   document.getElementById('endStats').innerHTML =
     (win ? L().ui.endWin : L().ui.endLose) +
     fmt(L().ui.endStats, {lv:S.level, k:S.kills, s:S.score, t:L().ui.tip165});
   document.getElementById('btnSaveScore').disabled = false;
   document.getElementById('btnSaveScore').textContent = L().ui.btnSave;
   show('endScreen');
-  sfx(win?880:55, .5, win?'square':'sawtooth');
+  if (win){ sfx(880, .5); }
+  else {   // 溫柔的上行三音：安慰與希望，而非失敗嘲弄
+    sfx(392, .25, 'sine');
+    setTimeout(() => sfx(494, .3, 'sine'), 220);
+    setTimeout(() => sfx(587, .5, 'sine'), 470);
+  }
 }
 
 /* ── 過關流程：轉場 →（每3關測驗）→ 下一關 ────────── */

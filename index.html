@@ -40,7 +40,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.4.0</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.4.1</span></p>
   </div>
 </div>
 
@@ -193,7 +193,42 @@
 <div id="endScreen" class="overlay">
   <div class="panel">
     <h2 id="endTitle">GAME OVER</h2>
+    <!-- 敗北安慰場景：暖光下的陪伴（像素插畫，無任何嘲諷元素） -->
+    <svg id="endArt" class="end-art hidden" viewBox="0 0 48 30" aria-hidden="true">
+      <circle cx="24" cy="16" r="14" fill="#ffd166" opacity=".10"/>
+      <circle cx="24" cy="16" r="9"  fill="#ffd166" opacity=".12"/>
+      <!-- 小夜燈 -->
+      <rect x="4" y="18" width="3" height="8" fill="#8a5a2b"/>
+      <rect x="2.5" y="14" width="6" height="5" fill="#ffd166"/>
+      <rect x="3.5" y="15" width="4" height="3" fill="#fff3b0"/>
+      <!-- 被安慰的人（裹著毯子） -->
+      <rect x="15" y="9" width="5" height="5" fill="#ffd9b3"/>
+      <rect x="16" y="11" width="1.4" height="1.4" fill="#1b1b2f"/>
+      <rect x="18" y="11" width="1.4" height="1.4" fill="#1b1b2f"/>
+      <rect x="13.5" y="14" width="8" height="12" fill="#7fb3d5"/>
+      <rect x="13.5" y="17" width="8" height="1.6" fill="#5e93b8"/>
+      <rect x="13.5" y="21" width="8" height="1.6" fill="#5e93b8"/>
+      <!-- 陪伴的人（伸手輕拍肩膀） -->
+      <rect x="28" y="8" width="5" height="5" fill="#ffd9b3"/>
+      <rect x="29" y="10" width="1.4" height="1.4" fill="#1b1b2f"/>
+      <rect x="31" y="10" width="1.4" height="1.4" fill="#1b1b2f"/>
+      <rect x="26.5" y="13" width="8" height="13" fill="#57e389"/>
+      <rect x="21.5" y="14.5" width="6" height="2.6" fill="#57e389"/>
+      <rect x="20.5" y="14" width="3" height="3" fill="#ffd9b3"/>
+      <!-- 兩人之間的小愛心 -->
+      <rect x="23" y="3.5" width="2" height="2" fill="#ef476f"/>
+      <rect x="26" y="3.5" width="2" height="2" fill="#ef476f"/>
+      <rect x="23" y="5.5" width="5" height="2" fill="#ef476f"/>
+      <rect x="24" y="7.5" width="3" height="1.6" fill="#ef476f"/>
+      <rect x="25" y="9.1" width="1" height="1" fill="#ef476f"/>
+      <!-- 溫熱的茶 -->
+      <rect x="38" y="21" width="4" height="4" fill="#f4f1e8"/>
+      <rect x="42" y="22" width="1.6" height="2" fill="#f4f1e8"/>
+      <rect x="38.6" y="18.6" width="1" height="1.8" fill="#9a97b0"/>
+      <rect x="40.4" y="17.8" width="1" height="2.4" fill="#9a97b0"/>
+    </svg>
     <p id="endStats" class="end-stats"></p>
+    <div id="endComfort" class="end-comfort hidden"></div>
     <button id="btnSaveScore" class="pixel-btn primary">記錄成績 ✍</button>
     <button id="btnRetry" class="pixel-btn">再挑戰一次 ↻</button>
   </div>
