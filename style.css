@@ -77,6 +77,8 @@ body{
   font-size:18px; padding:9px 12px; width:12em; text-align:center;
 }
 .start-row2{display:flex; gap:12px; justify-content:center; margin-top:14px;}
+.lang-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:16px;}
+.lang-btn.sel{background:var(--gold); color:#1b1b2f;}
 .credit{margin-top:20px; font-size:13px; color:var(--dim); line-height:1.8;}
 .credit .en-sm{font-size:9px;}
 
@@ -98,6 +100,29 @@ body{
 }
 #hudHP{color:#ff9db1;} #hudCoin{color:var(--gold);} #hudScore{color:#9be79b;}
 .hud-btns{display:flex; gap:6px;}
+
+/* ── 特種部隊支援列 ───────────────────── */
+#supportBar{
+  display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap;
+  width:100%; max-width:1000px; padding:4px 12px 10px;
+}
+.sup-lbl{font-family:var(--font-zh); font-size:15px; color:var(--dim);}
+.sup-btn{flex-direction:column; gap:2px; min-width:96px; padding:6px 12px;}
+.sup-btn .se{font-size:24px; line-height:1.1;}
+.sup-btn .sn{font-family:var(--font-zh); font-size:13px;}
+.sup-btn .cd{font-size:11px; color:var(--gold);}
+.sup-btn.locked{filter:grayscale(1) brightness(.55);}
+.sup-btn.ready{border-color:var(--gold); animation:supPulse 1.2s steps(2) infinite;}
+.sup-btn.aiming{background:var(--red); border-color:#fff; animation:supAim .5s steps(2) infinite;}
+@keyframes supPulse{50%{box-shadow:0 0 0 3px var(--gold), 4px 4px 0 #000;}}
+@keyframes supAim{50%{filter:brightness(1.5);}}
+
+/* 全螢幕爆閃層 */
+#screenFlash{
+  position:fixed; inset:0; z-index:70; pointer-events:none; opacity:0;
+}
+#screenFlash.flash-on{animation:bigFlash .5s steps(6) forwards;}
+@keyframes bigFlash{0%{opacity:1;} 100%{opacity:0;}}
 
 /* ── 遊戲畫布 ─────────────────────────── */
 #stage{position:relative; width:100%; max-width:1000px; padding:0 12px;}

@@ -5,7 +5,19 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.4.0';
+
+/* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
+let LANG = (function(){
+  try{ const s = localStorage.getItem('asmd_lang'); if (s && I18N[s]) return s; }catch(e){}
+  const n = (navigator.language || '').toLowerCase();
+  if (n.startsWith('zh')) return 'zh';
+  if (n.startsWith('id') || n.startsWith('ms')) return 'id';
+  if (n.startsWith('vi')) return 'vi';
+  return 'en';
+})();
+const L = () => I18N[LANG];
+function fmt(s, o){ return s.replace(/\{(\w+)\}/g, (_, k) => o[k] !== undefined ? o[k] : ''); }
 
 /* ── 常數 ─────────────────────────────────────────── */
 const COLS = 20, ROWS = 12, CELL = 48;
@@ -54,57 +66,23 @@ const ETYPES = [
   { key:'boss',   name:'AI深偽魔王',hp:420, spd:20, gold:90, dmg:5, score:300, c1:'#ef476f', c2:'#7a1030', face:'AI', boss:true },
 ];
 
-/* ── 續命測驗題庫（避開詐騙 → +1 命） ─────────────── */
-const QUIZ = [
-  { m:'【LINE】恭喜獲選飆股 VIP 群！\n王老師帶單，保證獲利 30%，\n點連結立即加入 ▸ bit.ly/xxxx', good:'封鎖檢舉', bad:'加入群組', why:'「保證獲利」＝詐騙鐵證。真投資沒有穩賺不賠。' },
-  { m:'【簡訊】您的包裹地址異常，\n24 小時內未更新將退回：\npost-tw.xyz/u8s3', good:'刪除簡訊', bad:'點連結更新', why:'簡訊連結一律不點！物流問題自己開官方 App 查。' },
-  { m:'【來電】「媽！我換新號碼了，\n朋友出車禍急需 5 萬，\n先匯到這個帳戶！」', good:'掛斷回撥舊號', bad:'馬上匯款', why:'換號碼＋借錢＝詐騙。AI 仿聲讓聲音再像也不可信。' },
-  { m:'【來電】蝦皮客服：您誤設 12 期\n分期，將重複扣款，請至 ATM\n依指示解除設定。', good:'掛斷打官方客服', bad:'去 ATM 操作', why:'ATM 沒有「解除分期」功能，操作＝轉帳給詐團。' },
-  { m:'【來電】刑事局：你涉入洗錢案！\n配合把存款轉入安全帳戶監管，\n偵查不公開，不得告知家人。', good:'掛斷打 110', bad:'配合轉帳', why:'檢警絕不會電話要求轉帳，「保密」是怕家人攔你。' },
-  { m:'【臉書】知名企業家影片：\n「我推薦這平台，月領 15%，\n點此加入專屬群組」', good:'檢舉假廣告', bad:'點擊加入', why:'AI 深偽換臉！名人不會在廣告帶你投資。' },
-  { m:'【超商】店員：您有貨到付款\n包裹 1,290 元。\n（你想不起有訂過…）', good:'當場拒收', bad:'先付款領貨', why:'沒訂的包裹一律拒收，拒收完全免費。' },
-  { m:'【網拍】名牌包 1 折最後一天！\n客服：官網金流故障，\n請直接轉帳到這個帳戶。', good:'離開封鎖', bad:'轉帳搶購', why:'脫離平台私下轉帳＝詐騙標配。' },
-  { m:'【交友】認識 3 個月的網友：\n「我幫你開虛擬貨幣帳戶，\n先入金 10 萬我帶你操作」', good:'拒絕並警覺', bad:'相信他入金', why:'養套殺！沒見過面的網友談投資＝詐騙。' },
-  { m:'【簡訊】台電通知：您本期電費\n異常，將於今日斷電，\n速點連結繳費。', good:'開官方App查', bad:'點連結繳費', why:'假冒公家機關的釣魚簡訊，連結不點就沒事。' },
-  { m:'【電話】銀行專員：您的帳戶\n被盜用！請提供網銀密碼\n與簡訊驗證碼核對身分。', good:'掛斷打銀行專線', bad:'提供驗證碼', why:'密碼與驗證碼給出去，錢就飛了。銀行不會這樣問。' },
-  { m:'【報案後】自稱律師來電：\n「付 3 萬服務費，保證幫你\n把被騙的錢全數追回」', good:'拒絕並通報165', bad:'付費請他追討', why:'二次詐騙！追討只透過警方司法程序，不用付費。' },
-];
-
-/* ── 過關轉場文案 ─────────────────────────────────── */
+/* ── 過關轉場英文字（各語言共用的視覺元素） ──────── */
 const CLEAR_EN = ['STAGE CLEAR!','SCAM BUSTED!','PERFECT!','YOU WIN!','K.O.!','GREAT!'];
-const CLEAR_ZH = ['詐騙集團全滅！','錢包守住了！','識詐力 UP！','詐團哭著跑走了','熱血民眾感謝你！','民眾信任回升！'];
 
-/* ── 過關防詐小知識（每次轉場輪播，把宣導織進爽感） ── */
-const TIPS = [
-  '「穩賺不賠」四個字，在法律上不存在。',
-  '簡訊裡的連結，一律不點。有事開官方 App 查。',
-  'ATM 沒有「解除分期」功能，有人教你按就是詐騙。',
-  '檢警不會用電話要求匯款或「監管帳戶」。',
-  '換號碼＋開口借錢＝詐騙，打舊號碼確認再說。',
-  'AI 仿聲能模仿家人聲音，約定一句只有家人知道的通關密語吧。',
-  '名人帶你投資的影片，再真都是 AI 深偽假的。',
-  '沒訂過的貨到付款包裹，一律拒收，拒收免費。',
-  '要你脫離平台「私下轉帳」的賣家，直接封鎖。',
-  '沒見過面的網友談投資，感情再好也是詐騙。',
-  '驗證碼是錢包鑰匙，任何人來要都不能給。',
-  '「偵查不公開、不能告訴家人」＝怕家人攔住你。',
-  '被騙後 30 分鐘內打 165，錢最有機會被「圈存」攔下。',
-  '報案後說「付費幫你追回款項」的，是二次詐騙。',
-  '一頁式廣告＋倒數計時＋破盤價＝標準詐騙三件套。',
-  '長輩最常遇到假檢警，把這遊戲傳給他們玩一次。',
-  '投資前先查：合法業者名單在金管會網站都查得到。',
-  '心跳加速、被催促時先深呼吸——「急」就是詐騙的武器。',
-  '165 是免費的，24 小時都有真人接聽。',
-  '被騙不丟臉，說出來就是在保護下一個人。',
+/* ── 特種部隊支援（主動技能：冷卻制、點地圖施放） ── */
+const SUPPORT = [
+  { key:'ram',   cd:40, unlock:3,  color:'#ff7b39' },   // 破門錘
+  { key:'flash', cd:55, unlock:7,  color:'#fff3b0' },   // 震撼彈
+  { key:'light', cd:50, unlock:11, color:'#9be7ff' },   // 強光手電筒
 ];
 
-/* ── 關卡修飾事件（Roguelike 變化，每關策略不同） ─── */
+/* ── 關卡修飾事件（數值定義；顯示名稱在 i18n.js） ─── */
 const MODS = [
-  { key:'none',  name:'',            spd:1,    range:1,   gold:0, count:1,   hpAdj:1 },
-  { key:'rush',  name:'⚡ 詐騙加速日', spd:1.25, range:1,   gold:0, count:1,   hpAdj:.95 },
-  { key:'fog',   name:'🌫 大霧瀰漫',   spd:1,    range:.85, gold:0, count:1,   hpAdj:1 },
-  { key:'gold',  name:'💰 豐收日',     spd:1,    range:1,   gold:2, count:1,   hpAdj:1.05 },
-  { key:'horde', name:'👥 人海戰術',   spd:1,    range:1,   gold:0, count:1.3, hpAdj:.8 },
+  { key:'none',  spd:1,    range:1,   gold:0, count:1,   hpAdj:1 },
+  { key:'rush',  spd:1.25, range:1,   gold:0, count:1,   hpAdj:.95 },
+  { key:'fog',   spd:1,    range:.85, gold:0, count:1,   hpAdj:1 },
+  { key:'gold',  spd:1,    range:1,   gold:2, count:1,   hpAdj:1.05 },
+  { key:'horde', spd:1,    range:1,   gold:0, count:1.3, hpAdj:.8 },
 ];
 
 /* ── 遊戲狀態 ─────────────────────────────────────── */
@@ -114,6 +92,8 @@ let selTower = null;     // 點選的已建塔
 let speedIdx = 0; const SPEEDS = [1,2,3];
 let muted = false;
 let raf = 0, lastT = 0;
+let selSup = -1;       // 支援瞄準模式
+let hitStop = 0;       // 慢動作剩餘秒數
 
 function newState(){
   return {
@@ -122,6 +102,7 @@ function newState(){
     path:[], grid:[], spawnQ:[], spawnT:0,
     playing:false, waveActive:false, over:false, paused:false,
     autoT:0, mod:MODS[0],
+    supCd:[0,0,0], beam:null,
   };
 }
 
@@ -272,7 +253,7 @@ function hitEnemy(e, dmg, src){
     S.score += Math.round(t.score * (1 + S.level*.02));
     S.hp = Math.min(HP_CAP, S.hp + 1);        // ★ 識別詐騙 → 血量+1
     burst(e.x, e.y, t.c1, t.boss?26:10);
-    S.fx.push({ txt:'識破'+t.name+'！', x:e.x, y:e.y-16, life:.9 });
+    S.fx.push({ txt:fmt(L().ui.killFloat, {name:L().enemies[e.ti]}), x:e.x, y:e.y-16, life:.9 });
     sfx(90, .08, 'sawtooth');
     tryConvert(e);
   }
@@ -286,7 +267,7 @@ function tryConvert(e){
     if (Math.random() < spec.convert){
       S.allies.push({ p: e.seg + e.prog, spd:55, hitCd:0, x:e.x, y:e.y, done:false });
       burst(e.x, e.y, '#ffd166', 14);
-      banner('🎗 一位受害者站出來現身說法了！');
+      banner(L().ui.convert);
       sfx(660,.1); sfx(880,.12);
       break;
     }
@@ -345,18 +326,115 @@ function sfx(freq, dur, type='square'){
   }catch(e){}
 }
 
+/* 重武器爆音：sub-bass 下滑 + 白噪爆裂 */
+function sfxBoom(freq){
+  if (muted) return;
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    const t0 = AC.currentTime;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq || 90, t0);
+    o.frequency.exponentialRampToValueAtTime(24, t0 + .5);
+    g.gain.setValueAtTime(.5, t0);
+    g.gain.exponentialRampToValueAtTime(.001, t0 + .55);
+    o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0 + .55);
+    const len = Math.floor(AC.sampleRate * .3);
+    const buf = AC.createBuffer(1, len, AC.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random()*2 - 1) * (1 - i/len);
+    const src = AC.createBufferSource(); src.buffer = buf;
+    const g2 = AC.createGain(); g2.gain.value = .3;
+    src.connect(g2); g2.connect(AC.destination); src.start(t0);
+  }catch(e){}
+}
+
+/* 全螢幕閃光（DOM 覆蓋層） */
+function screenFlash(color){
+  const el = document.getElementById('screenFlash');
+  if (!el) return;
+  el.style.background = color;
+  el.classList.remove('flash-on');
+  void el.offsetWidth;   // 重觸發動畫
+  el.classList.add('flash-on');
+}
+
+/* ── 特種部隊支援施放 ─────────────────────────────── */
+function useSupport(i, px, py){
+  const sp = SUPPORT[i];
+  S.supCd[i] = sp.cd;
+  selSup = -1;
+  banner(L().support.arrive);
+  if (sp.key === 'ram'){
+    // 破門錘：重擊＋擊退＋慢動作
+    hitStop = .35;
+    shake(22);
+    screenFlash('rgba(255,120,40,.4)');
+    sfxBoom(70);
+    for (let k = 0; k < 3; k++)
+      S.fx.push({ ring:true, x:px, y:py, r:8 + k*12, max:120 + k*30, dur:.55 + k*.1, life:.55 + k*.1, color:sp.color });
+    burst(px, py, '#ffb380', 34);
+    const dmg = 60 + S.level * 4;
+    for (const e of S.enemies){
+      if (e.dead) continue;
+      if ((e.x-px)**2 + (e.y-py)**2 <= 95*95){
+        if (!ETYPES[e.ti].boss){ e.seg = Math.max(0, e.seg - 1); e.prog = 0; }
+        hitEnemy(e, dmg, null);
+      }
+    }
+  } else if (sp.key === 'flash'){
+    // 震撼彈：全場暈眩＋爆心傷害
+    shake(14);
+    screenFlash('rgba(255,255,255,.9)');
+    sfxBoom(180);
+    S.fx.push({ ring:true, x:px, y:py, r:10, max:170, dur:.5, life:.5, color:'#ffffff' });
+    const until = performance.now() + 2500;
+    const dmg = 35 + S.level * 2;
+    for (const e of S.enemies){
+      if (e.dead) continue;
+      e.slowUntil = until; e.slowPct = 1;
+      if ((e.x-px)**2 + (e.y-py)**2 <= 140*140) hitEnemy(e, dmg, null);
+    }
+  } else {
+    // 強光手電筒：光束橫掃全圖，傷害＋曝光標記
+    shake(6);
+    screenFlash('rgba(150,220,255,.25)');
+    sfxBoom(300);
+    S.beam = { x:-40, spd:(W + 120)/1.15, hit:new Set() };
+  }
+  updateHUD();
+}
+
 /* ── 主迴圈 ───────────────────────────────────────── */
 function loop(ts){
   raf = requestAnimationFrame(loop);
   if (!S || S.paused || S.over){ lastT = ts; return; }
-  let dt = Math.min(.05, (ts - lastT)/1000) * SPEEDS[speedIdx];
+  const rawDt = Math.min(.05, (ts - lastT)/1000);
   lastT = ts;
+  let dt = rawDt * SPEEDS[speedIdx];
+  if (hitStop > 0){ hitStop -= rawDt; dt *= .22; }   // 破門錘慢動作
   const now = performance.now();
+  for (let i = 0; i < 3; i++) if (S.supCd[i] > 0) S.supCd[i] = Math.max(0, S.supCd[i] - dt);
+  // 強光手電筒光束
+  if (S.beam){
+    const b = S.beam;
+    b.x += b.spd * dt;
+    const dmg = 30 + S.level * 2;
+    for (const e of S.enemies){
+      if (e.dead || b.hit.has(e)) continue;
+      if (Math.abs(e.x - b.x) < 28){
+        b.hit.add(e);
+        e.markUntil = now + 4000;
+        hitEnemy(e, dmg, null);
+      }
+    }
+    if (b.x > W + 60) S.beam = null;
+  }
 
   // 自動出怪倒數（可提前手動按）
   if (!S.waveActive && !S.over && S.autoT > 0){
     S.autoT -= dt;
-    if (S.autoT <= 0){ S.waveActive = true; banner(`⚔ 第 ${S.level} 波詐騙來襲！`); }
+    if (S.autoT <= 0){ S.waveActive = true; banner(fmt(L().ui.waveBanner, {lv:S.level})); }
   }
   // 出怪
   if (S.waveActive && S.spawnQ.length){
@@ -410,6 +488,7 @@ function loop(ts){
   for (const f of S.fx){
     if (f.zap){ f.life -= dt; continue; }
     if (f.txt){ f.y -= 26*dt; f.life -= dt; continue; }
+    if (f.ring){ f.r += (f.max/f.dur)*dt; f.life -= dt; continue; }
     f.x+=f.vx*dt; f.y+=f.vy*dt; f.vy+=160*dt; f.life-=dt;
   }
   S.fx = S.fx.filter(f => f.life > 0);
@@ -429,7 +508,7 @@ function loseLife(){
   if (S.lives <= 0){ gameOver(false); return; }
   S.hp = HP_START;
   S.enemies = []; S.projs = [];
-  banner(`💔 損失一命！剩 ${S.lives} 條命，穩住！`);
+  banner(fmt(L().ui.lifeLost, {n:S.lives}));
   S.waveActive = true; // 繼續當前波剩餘的怪
 }
 function gameOver(win){
@@ -437,10 +516,10 @@ function gameOver(win){
   const t = document.getElementById('endTitle');
   t.textContent = win ? '🏆 YOU WIN!' : 'GAME OVER';
   document.getElementById('endStats').innerHTML =
-    (win ? '87 關全破！全台詐騙集團宣布倒閉（哭）。<br>' : '民眾的錢包被掏空了……<br>') +
-    `關卡 <b>${S.level}</b> ／ 識破詐騙 <b>${S.kills}</b> 隻<br>總分 <b>${S.score}</b><br>💡 現實中遇到可疑訊息：先冷靜，再撥 <b>165</b>`;
+    (win ? L().ui.endWin : L().ui.endLose) +
+    fmt(L().ui.endStats, {lv:S.level, k:S.kills, s:S.score, t:L().ui.tip165});
   document.getElementById('btnSaveScore').disabled = false;
-  document.getElementById('btnSaveScore').textContent = '記錄成績 ✍';
+  document.getElementById('btnSaveScore').textContent = L().ui.btnSave;
   show('endScreen');
   sfx(win?880:55, .5, win?'square':'sawtooth');
 }
@@ -459,11 +538,19 @@ function afterQuiz(){
   S.level++;
   genLevel(S.level);
   S.autoT = 10;
-  const modTag = S.mod.name ? `　${S.mod.name}` : '';
-  const news = TOWERS.filter(t => t.unlock === S.level);
+  const modName = L().ui.mods[S.mod.key];
+  const modTag = modName ? `　${modName}` : '';
+  const supNews = SUPPORT.map((s,i) => ({s,i})).filter(o => o.s.unlock === S.level);
+  if (supNews.length){
+    banner(fmt(L().support.unlock, {name:L().support.names[supNews[0].i]}));
+    sfx(520,.1); sfx(780,.1); sfx(1040,.15);
+    updateHUD();
+    return;
+  }
+  const news = TOWERS.map((t,i) => ({t,i})).filter(o => o.t.unlock === S.level);
   banner(news.length
-    ? `🆕 新武器解鎖：${news.map(t => t.name).join('、')}！${modTag}`
-    : `🚩 第 ${S.level} 關${S.level%10===0?'（⚠ AI 深偽魔王）':''}${modTag}　佈署就緒或倒數後自動出怪`);
+    ? fmt(L().ui.unlockBanner, {names:news.map(o => L().towers[o.i]).join('、'), mod:modTag})
+    : fmt(L().ui.stageBanner, {lv:S.level, boss:S.level%10===0?L().ui.bossTag:'', mod:modTag}));
   if (news.length){ sfx(520,.1); sfx(780,.1); sfx(1040,.15); }
   updateHUD();
 }
@@ -474,8 +561,8 @@ function playClearFx(cb){
   document.getElementById('clearWordEn').textContent =
     `STAGE ${S.level} ` + CLEAR_EN[Math.floor(Math.random()*CLEAR_EN.length)];
   document.getElementById('clearWordZh').textContent =
-    CLEAR_ZH[Math.floor(Math.random()*CLEAR_ZH.length)];
-  document.getElementById('clearTip').textContent = '💡 ' + TIPS[(S.level - 1) % TIPS.length];
+    L().ui.clear[Math.floor(Math.random()*L().ui.clear.length)];
+  document.getElementById('clearTip').textContent = '💡 ' + L().tips[(S.level - 1) % L().tips.length];
   fx.classList.remove('hidden','out');
   sfx(660,.1); setTimeout(()=>sfx(880,.12),120); setTimeout(()=>sfx(1180,.2),260);
   setTimeout(() => fx.classList.add('out'), 2000);
@@ -485,11 +572,12 @@ function playClearFx(cb){
 /* ── 續命測驗（避開詐騙 → +1 命） ─────────────────── */
 let quizUsed = [];
 function showQuiz(cb){
-  let pool = QUIZ.map((q,i)=>i).filter(i => !quizUsed.includes(i));
-  if (!pool.length){ quizUsed = []; pool = QUIZ.map((q,i)=>i); }
+  const QZ = L().quiz;
+  let pool = QZ.map((q,i)=>i).filter(i => !quizUsed.includes(i));
+  if (!pool.length){ quizUsed = []; pool = QZ.map((q,i)=>i); }
   const qi = pool[Math.floor(Math.random()*pool.length)];
   quizUsed.push(qi);
-  const q = QUIZ[qi];
+  const q = QZ[qi];
   document.getElementById('quizMsg').textContent = q.m;
   const bGood = document.getElementById('quizGood');
   const bBad  = document.getElementById('quizBad');
@@ -508,13 +596,13 @@ function showQuiz(cb){
       const gained = S.lives < LIVES_CAP;
       if (gained) S.lives++;
       res.classList.add('ok');
-      res.textContent = `✅ 成功避開詐騙！${gained?'+1 命！':'命已滿，+100 分！'}\n${q.why}`;
+      res.textContent = (gained ? L().ui.quizOkLife : L().ui.quizOkFull) + '\n' + q.why;
       if (!gained) S.score += 100;
       sfx(880,.15); setTimeout(()=>sfx(1320,.2),130);
     } else {
       S.hp = Math.max(1, S.hp - 5);
       res.classList.add('no');
-      res.textContent = `❌ 上當了！血量 -5。\n${q.why}`;
+      res.textContent = L().ui.quizNo + '\n' + q.why;
       sfx(70,.3,'sawtooth');
     }
     updateHUD();
@@ -617,6 +705,14 @@ function draw(){
       ctx.stroke();
       continue;
     }
+    if (f.ring){
+      ctx.globalAlpha = Math.max(0, f.life*1.8);
+      ctx.strokeStyle = f.color; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.28); ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r*.7, 0, 6.28); ctx.stroke();
+      continue;
+    }
     if (f.txt){
       ctx.globalAlpha = Math.max(0, f.life);
       ctx.fillStyle = '#ffffff';
@@ -628,6 +724,18 @@ function draw(){
     ctx.globalAlpha = Math.max(0, f.life*2);
     ctx.fillStyle = f.color;
     ctx.fillRect(f.x-3, f.y-3, 6, 6);
+  }
+  // 強光手電筒光束
+  if (S.beam){
+    const bx = S.beam.x;
+    const gr = ctx.createLinearGradient(bx-34, 0, bx+34, 0);
+    gr.addColorStop(0, 'rgba(155,231,255,0)');
+    gr.addColorStop(.5, 'rgba(230,250,255,.75)');
+    gr.addColorStop(1, 'rgba(155,231,255,0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(bx-34, 0, 68, H);
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ctx.fillRect(bx-3, 0, 6, H);
   }
   ctx.globalAlpha = 1;
   ctx.restore();
@@ -740,9 +848,20 @@ function updateHUD(){
     const tc = b.querySelector && b.querySelector('.tc');
     if (tc) tc.textContent = locked ? '🔒Lv.' + spec.unlock : '🪙' + spec.cost;
   });
+  document.querySelectorAll('.sup-btn').forEach((b,i) => {
+    const sp = SUPPORT[i]; if (!sp) return;
+    const locked = S.level < sp.unlock;
+    const cd = S.supCd[i];
+    b.classList.toggle('locked', locked);
+    b.classList.toggle('aiming', selSup === i);
+    b.classList.toggle('ready', !locked && cd <= 0);
+    b.disabled = locked || cd > 0;
+    const cdEl = b.querySelector && b.querySelector('.cd');
+    if (cdEl) cdEl.textContent = locked ? '🔒Lv.' + sp.unlock : (cd > 0 ? Math.ceil(cd) + 's' : 'GO');
+  });
   const nb = $('btnNextWave');
   nb.disabled = S.waveActive;
-  nb.textContent = S.waveActive ? '⚔ 進行中' : (S.autoT > 0 ? `出怪 ▶ ${Math.ceil(S.autoT)}` : '出怪 ▶');
+  nb.textContent = S.waveActive ? L().ui.waveIn : (S.autoT > 0 ? fmt(L().ui.waveCount, {n:Math.ceil(S.autoT)}) : L().ui.waveGo);
 }
 
 let bannerTimer = 0;
@@ -764,6 +883,13 @@ function canvasPos(ev){
 cv.addEventListener('pointerdown', ev => {
   if (!S || S.over || S.paused) return;
   ev.preventDefault();
+  if (selSup >= 0){
+    const r = cv.getBoundingClientRect();
+    const px = (ev.clientX - r.left) * (W / r.width);
+    const py = (ev.clientY - r.top) * (H / r.height);
+    useSupport(selSup, px, py);
+    return;
+  }
   const [gx, gy] = canvasPos(ev);
   if (gx<0||gy<0||gx>=COLS||gy>=ROWS) return;
   const hit = S.towers.find(t => t.gx===gx && t.gy===gy);
@@ -780,7 +906,7 @@ cv.addEventListener('pointerdown', ev => {
       S.grid[gy][gx] = 2;
       sfx(520,.06); sfx(760,.06);
       updateHUD();
-    } else banner('🪙 點數不足！擊破詐騙賺點數');
+    } else banner(L().ui.needCoins);
   }
 });
 
@@ -789,7 +915,7 @@ function openTowerMenu(t){
   selTower = t;
   const m = $('towerMenu');
   const spec = TOWERS[t.ti];
-  $('tmName').textContent = `${spec.name} Lv.${t.lv}`;
+  $('tmName').textContent = `${L().towers[t.ti]} Lv.${t.lv}`;
   const upCost = Math.round(spec.cost * .8 * t.lv);
   $('tmUpCost').textContent = t.lv >= MAX_TLV ? 'MAX' : upCost;
   $('tmUp').disabled = t.lv >= MAX_TLV || S.coins < upCost;
@@ -828,8 +954,17 @@ document.querySelectorAll('.tower-btn').forEach((b,i) => {
     closeTowerMenu(); updateHUD();
   });
 });
+document.querySelectorAll('.sup-btn').forEach((b,i) => {
+  b.addEventListener('click', () => {
+    if (!S || S.level < SUPPORT[i].unlock || S.supCd[i] > 0) return;
+    selSup = (selSup === i) ? -1 : i;
+    selShop = -1; closeTowerMenu();
+    if (selSup >= 0) banner(L().support.aim);
+    updateHUD();
+  });
+});
 $('btnNextWave').addEventListener('click', () => {
-  if (!S.waveActive){ S.waveActive = true; banner(`⚔ 第 ${S.level} 波詐騙來襲！`); updateHUD(); }
+  if (!S.waveActive){ S.waveActive = true; S.autoT = 0; banner(fmt(L().ui.waveBanner, {lv:S.level})); updateHUD(); }
 });
 $('btnSpeed').addEventListener('click', () => {
   speedIdx = (speedIdx+1) % SPEEDS.length;
@@ -865,25 +1000,73 @@ function loadBoard(){
 function renderBoard(){
   const list = loadBoard();
   const ol = $('boardList');
-  ol.innerHTML = list.length ? '' : '<li>還沒有紀錄——當第一位防詐英雄吧！</li>';
+  ol.innerHTML = list.length ? '' : `<li>${L().ui.boardEmpty}</li>`;
   list.forEach(r => {
     const li = document.createElement('li');
-    li.innerHTML = `<b>${escapeHtml(r.n)}</b>　關卡${r.lv}<span class="pt">⭐${r.s}</span>`;
+    li.innerHTML = `<b>${escapeHtml(r.n)}</b>　${L().ui.levelTag}${r.lv}<span class="pt">⭐${r.s}</span>`;
     ol.appendChild(li);
   });
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 $('btnSaveScore').addEventListener('click', () => {
-  const name = ($('playerName').value.trim() || '匿名勇者').slice(0,10);
+  const name = ($('playerName').value.trim() || L().ui.namePh).slice(0,10);
   const list = loadBoard();
   list.push({ n:name, s:S.score, lv:S.level, d:Date.now() });
   list.sort((a,b) => b.s - a.s);
   try { localStorage.setItem(LB_KEY, JSON.stringify(list.slice(0,10))); }
   catch(e){ /* 可用性防護：私密模式或空間不足時不中斷流程 */ }
   $('btnSaveScore').disabled = true;
-  $('btnSaveScore').textContent = '已記錄 ✔';
+  $('btnSaveScore').textContent = L().ui.btnSaved;
   renderBoard(); show('boardScreen');
 });
+
+/* ── 套用語言到靜態介面 ───────────────────────────── */
+function applyI18n(){
+  const u = L().ui;
+  if (document.documentElement)
+    document.documentElement.lang = ({zh:'zh-Hant',en:'en',id:'id',vi:'vi'})[LANG] || 'en';
+  const set = (id, v, html) => { const el = document.getElementById(id); if (el){ if (html) el.innerHTML = v; else el.textContent = v; } };
+  set('tagline', u.tagline, true);
+  set('lblName', u.lblName);
+  const pn = $('playerName'); if (pn) pn.placeholder = u.namePh;
+  set('btnStartTxt', u.btnStart);
+  set('btnHow', u.btnHow); set('btnBoard', u.btnBoard);
+  set('creditTxt', u.credit, true);
+  set('howTitle', u.howTitle); set('howGo', u.howGo);
+  const ul = document.getElementById('howListUl');
+  if (ul && ul.replaceChildren){
+    ul.replaceChildren();
+    u.howList.forEach(s => { const li = document.createElement('li'); li.innerHTML = s; ul.appendChild(li); });
+  }
+  set('quizTitle', u.quizTitle);
+  set('boardTitle', u.boardTitle); set('boardNote', u.boardNote);
+  const cb = document.querySelector('.close-board'); if (cb) cb.textContent = u.boardClose;
+  set('btnRetry', u.btnRetry);
+  const sv = $('btnSaveScore'); if (sv && !sv.disabled) sv.textContent = u.btnSave;
+  set('tmUpLbl', u.upLbl); set('tmSellLbl', u.sellLbl);
+  document.querySelectorAll('.tower-btn').forEach((b,i) => {
+    const tn = b.querySelector && b.querySelector('.tn');
+    if (tn && L().towers[i]) tn.textContent = L().towers[i];
+  });
+  set('supLbl', L().support.title);
+  document.querySelectorAll('.sup-btn').forEach((b,i) => {
+    const sn = b.querySelector && b.querySelector('.sn');
+    if (sn && L().support.names[i]) sn.textContent = L().support.names[i];
+  });
+  document.querySelectorAll('.lang-btn').forEach(b => {
+    if (b.dataset) b.classList.toggle('sel', b.dataset.lang === LANG);
+  });
+  if (S) updateHUD();
+}
+document.querySelectorAll('.lang-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    if (!b.dataset || !I18N[b.dataset.lang]) return;
+    LANG = b.dataset.lang;
+    try{ localStorage.setItem('asmd_lang', LANG); }catch(e){}
+    applyI18n();
+  });
+});
+applyI18n();
 
 /* ── 畫面切換 ─────────────────────────────────────── */
 $('btnStart').addEventListener('click', () => {
@@ -900,11 +1083,11 @@ $('btnRetry').addEventListener('click', () => { hide('endScreen'); startGame(); 
 function startGame(){
   S = newState();
   quizUsed = [];
-  selShop = -1; selTower = null; speedIdx = 0;
+  selShop = -1; selTower = null; speedIdx = 0; selSup = -1; hitStop = 0;
   $('btnSpeed').textContent = '▶×1';
   genLevel(1);
   S.autoT = 15;                       // 第 1 關給新手多一點佈陣時間
-  banner('🚩 第 1 關　點武器→點草地蓋塔，倒數結束自動出怪！');
+  banner(L().ui.startBanner);
   updateHUD();
   if (!raf){ lastT = performance.now(); raf = requestAnimationFrame(loop); }
 }

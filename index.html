@@ -21,28 +21,34 @@
 <div id="startScreen" class="overlay show">
   <div class="panel start-panel">
     <h1 class="game-title"><span class="zh">防詐迷宮</span><br><span class="en">SCAM MAZE DEFENSE</span></h1>
-    <p class="tagline">詐騙大軍正衝向民眾的錢包——<br>蓋出你的防詐迷宮，一關都別放過！</p>
+    <p class="tagline" id="tagline">詐騙大軍正衝向民眾的錢包——<br>蓋出你的防詐迷宮，一關都別放過！</p>
+    <div class="lang-row" role="group" aria-label="Language">
+      <button class="pixel-btn mini lang-btn" data-lang="zh">中文</button>
+      <button class="pixel-btn mini lang-btn" data-lang="en">EN</button>
+      <button class="pixel-btn mini lang-btn" data-lang="id">ID</button>
+      <button class="pixel-btn mini lang-btn" data-lang="vi">VI</button>
+    </div>
     <div class="name-row">
-      <label for="playerName">玩家代號</label>
+      <label for="playerName" id="lblName">玩家代號</label>
       <input id="playerName" type="text" maxlength="10" placeholder="匿名勇者" autocomplete="off">
     </div>
     <button id="btnStart" class="pixel-btn big primary">
       <svg viewBox="0 0 16 16" class="icn"><path d="M4 2h2v2h2v2h2v2h2v2h-2v2H8v2H6v2H4z" fill="currentColor"/></svg>
-      開始防詐 START
+      <span id="btnStartTxt">開始防詐 START</span>
     </button>
     <div class="start-row2">
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.2.0</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v1.4.0</span></p>
   </div>
 </div>
 
 <!-- ══════════ 玩法說明 ══════════ -->
 <div id="howScreen" class="overlay">
   <div class="panel">
-    <h2>玩法說明</h2>
-    <ul class="how-list">
+    <h2 id="howTitle">玩法說明</h2>
+    <ul class="how-list" id="howListUl">
       <li>🏰 <b>目標：</b>阻止詐騙大軍走出迷宮、碰到「民眾」。共 <b>87 關</b>。</li>
       <li>🔨 <b>蓋塔：</b>點下方武器，再點草地放置。點已蓋的塔可升級／拆除。</li>
       <li>🎲 <b>Roguelike 迷宮：</b>每關地圖重生，塔會<b>全額退回點數</b>讓你重新佈陣。</li>
@@ -52,7 +58,7 @@
       <li>🛡️ <b>續命：</b>關卡之間會跳出「詐騙訊息」，<b>成功避開（封鎖）就 +1 命</b>，點錯會受傷！</li>
       <li>🏆 <b>計分：</b>擊破越多、過關越多分數越高，可匿名留名排行榜。</li>
     </ul>
-    <button class="pixel-btn primary close-how">知道了 GO!</button>
+    <button class="pixel-btn primary close-how" id="howGo">知道了 GO!</button>
   </div>
 </div>
 
@@ -70,6 +76,19 @@
       <button id="btnMute" class="pixel-btn mini" title="音效">♪</button>
     </div>
   </header>
+
+  <div id="supportBar">
+    <span class="sup-lbl" id="supLbl">🚁 特種支援</span>
+    <button class="pixel-btn sup-btn" data-s="0" title="重擊＋擊退＋慢動作（Lv.3 解鎖，CD 40s）">
+      <span class="se">🔨</span><span class="sn">破門錘</span><span class="cd">🔒Lv.3</span>
+    </button>
+    <button class="pixel-btn sup-btn" data-s="1" title="全場暈眩 2.5 秒＋爆心傷害（Lv.7 解鎖，CD 55s）">
+      <span class="se">💥</span><span class="sn">震撼彈</span><span class="cd">🔒Lv.7</span>
+    </button>
+    <button class="pixel-btn sup-btn" data-s="2" title="光束橫掃全圖：傷害＋曝光標記（Lv.11 解鎖，CD 50s）">
+      <span class="se">🔦</span><span class="sn">強光手電筒</span><span class="cd">🔒Lv.11</span>
+    </button>
+  </div>
 
   <main id="stage">
     <canvas id="cv" width="960" height="576"></canvas>
@@ -135,15 +154,15 @@
   <!-- 塔操作面板 -->
   <div id="towerMenu" class="tower-menu hidden">
     <div id="tmName" class="tm-name"></div>
-    <button id="tmUp" class="pixel-btn mini">升級 🪙<span id="tmUpCost"></span></button>
-    <button id="tmSell" class="pixel-btn mini danger">拆除 +🪙<span id="tmSellGain"></span></button>
+    <button id="tmUp" class="pixel-btn mini"><span id="tmUpLbl">升級</span> 🪙<span id="tmUpCost"></span></button>
+    <button id="tmSell" class="pixel-btn mini danger"><span id="tmSellLbl">拆除</span> +🪙<span id="tmSellGain"></span></button>
   </div>
 </div>
 
 <!-- ══════════ 避開詐騙（續命）彈窗 ══════════ -->
 <div id="quizScreen" class="overlay">
   <div class="panel quiz-panel">
-    <h2>⚠️ 詐騙來襲！避開它就 +1 命</h2>
+    <h2 id="quizTitle">⚠️ 詐騙來襲！避開它就 +1 命</h2>
     <div id="quizMsg" class="quiz-msg"></div>
     <div class="quiz-btns">
       <button id="quizBad" class="pixel-btn danger"></button>
@@ -182,15 +201,18 @@
 
 <div id="boardScreen" class="overlay">
   <div class="panel">
-    <h2>🏆 防詐英雄榜</h2>
+    <h2 id="boardTitle">🏆 防詐英雄榜</h2>
     <ol id="boardList" class="board-list"></ol>
-    <p class="board-note">成績儲存在你的瀏覽器（匿名、不上傳）</p>
+    <p class="board-note" id="boardNote">成績儲存在你的瀏覽器（匿名、不上傳）</p>
     <button class="pixel-btn primary close-board">關閉</button>
   </div>
 </div>
 
+<div id="screenFlash" aria-hidden="true"></div>
+
 <div id="cacheStat" title="版本與靜態資源快取命中率（Service Worker）">CACHE --</div>
 
+<script src="i18n.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
