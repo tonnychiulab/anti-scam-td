@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v1.6.0';
+const APP_VERSION = 'v2.0.0-a1';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -19,14 +19,37 @@ let LANG = (function(){
 const L = () => I18N[LANG];
 function fmt(s, o){ return s.replace(/\{(\w+)\}/g, (_, k) => o[k] !== undefined ? o[k] : ''); }
 
-/* ── 常數 ─────────────────────────────────────────── */
-const COLS = 20, ROWS = 12, CELL = 48;
-const W = COLS * CELL, H = ROWS * CELL;
+/* ── 棋盤尺寸（依 layoutMode 動態切換） ───────────── */
+const CELL = 48;
+const MAJ = 20, MIN = 12;          // 主軸×次軸：迷宮永遠在此空間生成
+let COLS = MAJ, ROWS = MIN;        // 直立時轉置為 12×20
+let W = COLS * CELL, H = ROWS * CELL;
 const MAX_LEVEL = 87;
 const HP_START = 10, HP_CAP = 30, LIVES_START = 3, LIVES_CAP = 5;
 
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
+
+/* ── layoutMode：能力偵測（不猜機型） ─────────────── */
+let LAYOUT = 'desktop';            // desktop | mland | mport
+function detectLayout(){
+  try{
+    if (!window.matchMedia) return 'desktop';
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    if (!coarse) return 'desktop';
+    return matchMedia('(orientation: portrait)').matches ? 'mport' : 'mland';
+  }catch(e){ return 'desktop'; }
+}
+function applyLayout(mode){
+  LAYOUT = mode;
+  if (document.body && document.body.dataset) document.body.dataset.layout = mode;
+  const portrait = mode === 'mport';
+  COLS = portrait ? MIN : MAJ;
+  ROWS = portrait ? MAJ : MIN;
+  W = COLS * CELL; H = ROWS * CELL;
+  cv.width = W; cv.height = H;
+}
+applyLayout(detectLayout());
 
 /* ── 種子隨機（每關迷宮固定，像 roguelike 的地圖種子） ── */
 function RNG(seed){
@@ -112,21 +135,27 @@ function newState(){
 }
 
 /* ── 迷宮路徑產生（seed = 關卡編號） ───────────────── */
-function genLevel(lv){
-  closeTowerMenu();            // 防幽靈塔選單（換關後殘留的雙重退款漏洞）
+/* 主軸空間（MAJ×MIN）生成路徑：同種子 → 同迷宮，直橫僅轉置 */
+function genMajorPath(lv){
   const rng = RNG(lv * 7919 + 12345);
   const cells = [];
-  let r = 2 + Math.floor(rng() * (ROWS - 4)), c = 0;
+  let r = 2 + Math.floor(rng() * (MIN - 4)), c = 0;
   cells.push([c, r]);
-  while (c < COLS - 1){
+  while (c < MAJ - 1){
     let run = 2 + Math.floor(rng() * 3);
-    while (run-- > 0 && c < COLS - 1){ c++; cells.push([c, r]); }
-    if (c >= COLS - 1) break;
-    let nr = 1 + Math.floor(rng() * (ROWS - 2));
-    while (nr === r) nr = 1 + Math.floor(rng() * (ROWS - 2));
+    while (run-- > 0 && c < MAJ - 1){ c++; cells.push([c, r]); }
+    if (c >= MAJ - 1) break;
+    let nr = 1 + Math.floor(rng() * (MIN - 2));
+    while (nr === r) nr = 1 + Math.floor(rng() * (MIN - 2));
     const dir = nr > r ? 1 : -1;
     while (r !== nr){ r += dir; cells.push([c, r]); }
   }
+  return cells;
+}
+function genLevel(lv){
+  closeTowerMenu();            // 防幽靈塔選單（換關後殘留的雙重退款漏洞）
+  let cells = genMajorPath(lv);
+  if (LAYOUT === 'mport') cells = cells.map(([x, y]) => [y, x]);  // 直立：上→下防守
   S.path = cells;
   S.grid = Array.from({length:ROWS}, () => Array(COLS).fill(0));
   for (const [x,y] of cells) S.grid[y][x] = 1;           // 1=路
@@ -409,7 +438,8 @@ function useSupport(i, px, py){
     shake(6);
     screenFlash('rgba(150,220,255,.25)');
     sfxBoom(300);
-    S.beam = { x:-40, spd:(W + 120)/1.15, hit:new Set() };
+    const vert = LAYOUT === 'mport';
+    S.beam = { pos:-40, axis: vert ? 'y' : 'x', spd:((vert ? H : W) + 120)/1.15, hit:new Set() };
   }
   updateHUD();
 }
@@ -500,17 +530,17 @@ function loop(ts){
   // 強光手電筒光束
   if (S.beam){
     const b = S.beam;
-    b.x += b.spd * dt;
+    b.pos += b.spd * dt;
     const dmg = 30 + S.level * 2;
     for (const e of S.enemies){
       if (e.dead || b.hit.has(e)) continue;
-      if (Math.abs(e.x - b.x) < 28){
+      if (Math.abs((b.axis === 'x' ? e.x : e.y) - b.pos) < 28){
         b.hit.add(e);
         e.markLeft = 4;
         hitEnemy(e, dmg, null);
       }
     }
-    if (b.x > W + 60) S.beam = null;
+    if (b.pos > (b.axis === 'x' ? W : H) + 60) S.beam = null;
   }
 
   // 自動出怪倒數（可提前手動按）
@@ -846,17 +876,25 @@ function draw(){
     ctx.fillStyle = f.color;
     ctx.fillRect(f.x-3, f.y-3, 6, 6);
   }
-  // 強光手電筒光束
+  // 強光手電筒光束（軸向感知）
   if (S.beam){
-    const bx = S.beam.x;
-    const gr = ctx.createLinearGradient(bx-34, 0, bx+34, 0);
+    const p = S.beam.pos, horiz = S.beam.axis === 'x';
+    const gr = horiz
+      ? ctx.createLinearGradient(p-34, 0, p+34, 0)
+      : ctx.createLinearGradient(0, p-34, 0, p+34);
     gr.addColorStop(0, 'rgba(155,231,255,0)');
     gr.addColorStop(.5, 'rgba(230,250,255,.75)');
     gr.addColorStop(1, 'rgba(155,231,255,0)');
     ctx.fillStyle = gr;
-    ctx.fillRect(bx-34, 0, 68, H);
-    ctx.fillStyle = 'rgba(255,255,255,.9)';
-    ctx.fillRect(bx-3, 0, 6, H);
+    if (horiz){
+      ctx.fillRect(p-34, 0, 68, H);
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.fillRect(p-3, 0, 6, H);
+    } else {
+      ctx.fillRect(0, p-34, W, 68);
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.fillRect(0, p-3, W, 6);
+    }
   }
   ctx.globalAlpha = 1;
   ctx.restore();
@@ -1189,6 +1227,51 @@ $('btnSaveScore').addEventListener('click', () => {
     $('btnSaveScore').textContent = L().ui.btnSaveFail;  // 誠實回報，按鈕保持可再試
   }
 });
+
+/* ── 中途轉向：場上狀態無損轉置 ───────────────────── */
+function relayout(){
+  const mode = detectLayout();
+  if (mode === LAYOUT) return;
+  const flip = (LAYOUT === 'mport') !== (mode === 'mport');   // 直↔橫才需轉置
+  applyLayout(mode);
+  if (S && flip){
+    S.path = S.path.map(([x, y]) => [y, x]);
+    S.grid = Array.from({length:ROWS}, () => Array(COLS).fill(0));
+    for (const [x, y] of S.path) S.grid[y][x] = 1;
+    for (const t of S.towers){
+      const ngx = t.gy, ngy = t.gx;
+      t.gx = ngx; t.gy = ngy;
+      t.x = t.gx*CELL + CELL/2; t.y = t.gy*CELL + CELL/2;
+      S.grid[t.gy][t.gx] = 2;
+    }
+    // 正方格：像素座標轉置＝x/y 互換
+    for (const e of S.enemies){ const tx = e.x; e.x = e.y; e.y = tx; }
+    for (const a of S.allies){ const tx = a.x; a.x = a.y; a.y = tx; }
+    if (S.critter){ const tx = S.critter.x; S.critter.x = S.critter.y; S.critter.y = tx; }
+    S.projs = []; S.fx = []; S.beam = null;   // 投射物/特效瞬移易錯，直接汰換
+    buildGround();
+    closeTowerMenu(); selShop = -1; selSup = -1;
+    // 暫停 0.6 秒讓玩家重新定位
+    S.paused = true;
+    const gen = runGen;
+    setTimeout(() => {
+      if (gen !== runGen || !S) return;
+      S.paused = false;
+      $('btnPause').textContent = '❚❚';
+    }, 600);
+    banner(L().ui.viewSwitched);
+    updateHUD();
+  } else if (S){
+    buildGround();
+  }
+}
+window.addEventListener('resize', relayout);
+try{
+  if (window.matchMedia){
+    const mq = matchMedia('(orientation: portrait)');
+    if (mq.addEventListener) mq.addEventListener('change', relayout);
+  }
+}catch(e){}
 
 /* ── 套用語言到靜態介面 ───────────────────────────── */
 function applyI18n(){

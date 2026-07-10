@@ -1,7 +1,7 @@
 /* 防詐迷宮 Service Worker — stale-while-revalidate＋離線導航後備
    相對路徑設計，可直接部署 GitHub Pages 子目錄 */
 'use strict';
-const CACHE = 'asmd-v1.6.0';   // 與 game.js 的 APP_VERSION 同步遞增
+const CACHE = 'asmd-v2.0.0-a1';   // 與 game.js 的 APP_VERSION 同步遞增
 const ASSETS = ['./', './index.html', './style.css', './game.js', './i18n.js'];
 
 self.addEventListener('install', ev => {
