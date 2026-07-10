@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.0.0-a1';
+const APP_VERSION = 'v2.0.0-b1';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -50,6 +50,31 @@ function applyLayout(mode){
   cv.width = W; cv.height = H;
 }
 applyLayout(detectLayout());
+
+/* ── 檢視（雙指縮放/平移；桌機固定 1×） ──────────── */
+const ZOOM_MIN = 1, ZOOM_MAX = 2.5;
+let view = { scale:1, ox:0, oy:0 };
+function resetView(){ view.scale = 1; view.ox = 0; view.oy = 0; }
+function clampView(){
+  view.scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.scale));
+  view.ox = Math.min(0, Math.max(W * (1 - view.scale), view.ox));
+  view.oy = Math.min(0, Math.max(H * (1 - view.scale), view.oy));
+}
+function zoomAt(ix, iy, factor){         // ix,iy＝內部像素（未經 view）
+  const ns = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.scale * factor));
+  const wx = (ix - view.ox) / view.scale, wy = (iy - view.oy) / view.scale;
+  view.scale = ns;
+  view.ox = ix - wx * ns;
+  view.oy = iy - wy * ns;
+  clampView();
+}
+function clientToInternal(cx, cy){
+  const r = cv.getBoundingClientRect();
+  return [ (cx - r.left) * (W / r.width), (cy - r.top) * (H / r.height) ];
+}
+function internalToWorld(ix, iy){
+  return [ (ix - view.ox) / view.scale, (iy - view.oy) / view.scale ];
+}
 
 /* ── 種子隨機（每關迷宮固定，像 roguelike 的地圖種子） ── */
 function RNG(seed){
@@ -154,6 +179,7 @@ function genMajorPath(lv){
 }
 function genLevel(lv){
   closeTowerMenu();            // 防幽靈塔選單（換關後殘留的雙重退款漏洞）
+  if (typeof closeBuildMenu === 'function') closeBuildMenu();
   let cells = genMajorPath(lv);
   if (LAYOUT === 'mport') cells = cells.map(([x, y]) => [y, x]);  // 直立：上→下防守
   S.path = cells;
@@ -801,6 +827,7 @@ function buildGround(){
 
 function draw(){
   ctx.save();
+  ctx.setTransform(view.scale, 0, 0, view.scale, view.ox, view.oy);
   if (shakeAmt > .5){
     ctx.translate((Math.random()-.5)*shakeAmt, (Math.random()-.5)*shakeAmt);
     shakeAmt *= .88;
@@ -827,6 +854,23 @@ function draw(){
   }
   // 塔
   for (const t of S.towers) drawTower(t);
+  // 建造預覽：目標格＋幽靈塔＋射程圈（未扣款）
+  if (bp.open){
+    const px = bp.gx*CELL, py = bp.gy*CELL;
+    ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 3; ctx.setLineDash([5,4]);
+    ctx.strokeRect(px+3, py+3, CELL-6, CELL-6); ctx.setLineDash([]);
+    if (bp.ti >= 0){
+      const spec = TOWERS[bp.ti];
+      ctx.globalAlpha = .55;
+      drawTower({ ti:bp.ti, gx:bp.gx, gy:bp.gy, lv:1, flash:0 });
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(px+CELL/2, py+CELL/2, spec.range * S.mod.range, 0, 6.28);
+      ctx.fillStyle = 'rgba(255,209,102,.10)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,209,102,.55)'; ctx.setLineDash([6,6]); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
   // 敵人
   for (const e of S.enemies) drawEnemy(e);
   // 志工
@@ -1073,43 +1117,183 @@ function banner(msg){
   bannerTimer = setTimeout(() => b.classList.add('hidden'), 2600);
 }
 
-/* ── 畫布互動（滑鼠＋觸控） ───────────────────────── */
-function canvasPos(ev){
-  const r = cv.getBoundingClientRect();
-  const cx = (ev.clientX - r.left) * (W / r.width);
-  const cy = (ev.clientY - r.top) * (H / r.height);
-  return [Math.floor(cx / CELL), Math.floor(cy / CELL)];
+/* ── 點地建造面板（手機）：兩段式確認，確認前絕不扣款 ── */
+let bp = { open:false, gx:0, gy:0, ti:-1 };
+function bpItems(){
+  return TOWERS
+    .map((t, i) => ({ i, cost:t.cost, unlocked:S.level >= (t.unlock || 1), afford:S.coins >= t.cost }))
+    .filter(o => o.unlocked);
 }
-cv.addEventListener('pointerdown', ev => {
-  if (!S || S.over || S.paused) return;
-  ev.preventDefault();
-  if (selSup >= 0){
-    const r = cv.getBoundingClientRect();
-    const px = (ev.clientX - r.left) * (W / r.width);
-    const py = (ev.clientY - r.top) * (H / r.height);
-    useSupport(selSup, px, py);
-    return;
+function openBuildMenu(gx, gy){
+  bp = { open:true, gx, gy, ti:-1 };
+  renderBuildMenu();
+  const el = document.getElementById('buildMenu');
+  if (el) el.classList.remove('hidden');
+}
+function closeBuildMenu(){
+  bp = { open:false, gx:0, gy:0, ti:-1 };
+  const el = document.getElementById('buildMenu');
+  if (el) el.classList.add('hidden');
+}
+function bpPick(i){
+  if (!bp.open) return;
+  const spec = TOWERS[i];
+  if (!spec || S.level < (spec.unlock || 1) || S.coins < spec.cost) return;  // 買不起／未解鎖：僅灰顯
+  bp.ti = (bp.ti === i) ? -1 : i;      // 再點一次取消預覽
+  renderBuildMenu();
+}
+function bpConfirm(){
+  if (!bp.open || bp.ti < 0) return;
+  const spec = TOWERS[bp.ti];
+  if (S.grid[bp.gy][bp.gx] !== 0 || S.coins < spec.cost || S.level < (spec.unlock || 1)){
+    closeBuildMenu(); return;
   }
-  const [gx, gy] = canvasPos(ev);
-  if (gx<0||gy<0||gx>=COLS||gy>=ROWS) return;
-  const hit = S.towers.find(t => t.gx===gx && t.gy===gy);
-  if (hit){ openTowerMenu(hit); return; }
+  S.coins -= spec.cost;                // ★ 只在確認時扣款
+  S.towers.push({
+    ti:bp.ti, gx:bp.gx, gy:bp.gy,
+    x:bp.gx*CELL + CELL/2, y:bp.gy*CELL + CELL/2,
+    lv:1, dmg:spec.dmg, range:spec.range, cd:0, flash:0, invested:spec.cost,
+  });
+  S.grid[bp.gy][bp.gx] = 2;
+  sfx(520,.06); sfx(760,.06);
+  closeBuildMenu();
+  updateHUD();
+}
+function renderBuildMenu(){
+  const list = document.getElementById('bmList');
+  const title = document.getElementById('bmTitle');
+  const ok = document.getElementById('bmOk');
+  if (title) title.textContent = L().ui.bpTitle;
+  if (list){
+    list.innerHTML = bpItems().map(o => {
+      const spec = TOWERS[o.i];
+      const cls = 'bp-item pixel-btn' + (o.afford ? '' : ' poor') + (bp.ti === o.i ? ' sel' : '');
+      return `<button class="${cls}" data-bp="${o.i}">` +
+             `<span class="bg">${spec.glyph === '165' ? '165' : spec.glyph}</span>` +
+             `<span class="bn">${L().towers[o.i]}</span>` +
+             `<span class="bc">🪙${o.cost}</span></button>`;
+    }).join('');
+  }
+  if (ok){
+    ok.disabled = bp.ti < 0;
+    ok.textContent = bp.ti >= 0 ? `${L().ui.bpBuild} 🪙${TOWERS[bp.ti].cost}` : L().ui.bpBuild;
+  }
+}
+(function wireBuildMenu(){
+  const list = document.getElementById('bmList');
+  if (list && list.addEventListener) list.addEventListener('click', ev => {
+    let n = ev.target;
+    while (n && n !== list && !(n.dataset && n.dataset.bp !== undefined)) n = n.parentNode;
+    if (n && n !== list && n.dataset && n.dataset.bp !== undefined) bpPick(parseInt(n.dataset.bp, 10));
+  });
+  const ok = document.getElementById('bmOk');
+  const no = document.getElementById('bmNo');
+  if (ok && ok.addEventListener) ok.addEventListener('click', bpConfirm);
+  if (no && no.addEventListener) no.addEventListener('click', closeBuildMenu);
+})();
+
+/* ── 畫布互動：單指=遊戲操作、雙指=縮放平移（硬區分） ── */
+const ptrs = new Map();          // 進行中的 pointer
+let gest = null;                 // 雙指手勢狀態
+let tapCand = null;              // 單指 tap 候選
+let lastTapAt = 0;
+const TAP_SLOP = 12;             // 內部像素
+
+function handleTap(ix, iy){      // ix,iy＝內部像素
+  if (!S || S.over || S.paused) return;
+  const [wx, wy] = internalToWorld(ix, iy);
+  if (selSup >= 0){ useSupport(selSup, wx, wy); return; }
+  const gx = Math.floor(wx / CELL), gy = Math.floor(wy / CELL);
+  if (gx < 0 || gy < 0 || gx >= COLS || gy >= ROWS){ closeBuildMenu(); return; }
+  const hit = S.towers.find(t => t.gx === gx && t.gy === gy);
+  if (hit){ closeBuildMenu(); openTowerMenu(hit); return; }
   closeTowerMenu();
-  if (selShop >= 0 && S.grid[gy][gx] === 0){
-    const spec = TOWERS[selShop];
-    if (S.level < (spec.unlock || 1)){ selShop = -1; updateHUD(); return; }  // 規則層防護，不信任 UI 狀態
-    if (S.coins >= spec.cost){
-      S.coins -= spec.cost;
-      S.towers.push({
-        ti:selShop, gx, gy, x:gx*CELL+CELL/2, y:gy*CELL+CELL/2,
-        lv:1, dmg:spec.dmg, range:spec.range, cd:0, flash:0, invested:spec.cost,
-      });
-      S.grid[gy][gx] = 2;
-      sfx(520,.06); sfx(760,.06);
-      updateHUD();
-    } else banner(L().ui.needCoins);
+  if (LAYOUT === 'desktop'){
+    // 桌機：先選武器 → 點地
+    if (selShop >= 0 && S.grid[gy][gx] === 0){
+      const spec = TOWERS[selShop];
+      if (S.level < (spec.unlock || 1)){ selShop = -1; updateHUD(); return; }
+      if (S.coins >= spec.cost){
+        S.coins -= spec.cost;
+        S.towers.push({
+          ti:selShop, gx, gy, x:gx*CELL+CELL/2, y:gy*CELL+CELL/2,
+          lv:1, dmg:spec.dmg, range:spec.range, cd:0, flash:0, invested:spec.cost,
+        });
+        S.grid[gy][gx] = 2;
+        sfx(520,.06); sfx(760,.06);
+        updateHUD();
+      } else banner(L().ui.needCoins);
+    }
+  } else {
+    // 手機：點空草地 → 建造面板
+    if (S.grid[gy][gx] === 0) openBuildMenu(gx, gy);
+    else closeBuildMenu();
+  }
+}
+
+cv.addEventListener('pointerdown', ev => {
+  if (!S || S.over) return;
+  ev.preventDefault();
+  ptrs.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
+  if (ptrs.size === 2 && LAYOUT !== 'desktop'){
+    tapCand = null;                            // 進入手勢：取消 tap
+    const [a, b] = [...ptrs.values()];
+    const [ax, ay] = clientToInternal(a.x, a.y);
+    const [bx, by] = clientToInternal(b.x, b.y);
+    gest = {
+      d0: Math.max(1, Math.hypot(bx-ax, by-ay)),
+      scale0: view.scale,
+      mx0: (ax+bx)/2, my0: (ay+by)/2,
+      ox0: view.ox, oy0: view.oy,
+    };
+  } else if (ptrs.size === 1){
+    const [ix, iy] = clientToInternal(ev.clientX, ev.clientY);
+    tapCand = { ix, iy, id: ev.pointerId };
   }
 });
+cv.addEventListener('pointermove', ev => {
+  if (!ptrs.has(ev.pointerId)) return;
+  ptrs.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
+  if (gest && ptrs.size >= 2){
+    ev.preventDefault();
+    const [a, b] = [...ptrs.values()];
+    const [ax, ay] = clientToInternal(a.x, a.y);
+    const [bx, by] = clientToInternal(b.x, b.y);
+    const d = Math.max(1, Math.hypot(bx-ax, by-ay));
+    const mx = (ax+bx)/2, my = (ay+by)/2;
+    const ns = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, gest.scale0 * (d / gest.d0)));
+    // 以手勢起點的世界座標為錨，跟隨中點移動
+    const wx = (gest.mx0 - gest.ox0) / gest.scale0;
+    const wy = (gest.my0 - gest.oy0) / gest.scale0;
+    view.scale = ns;
+    view.ox = mx - wx * ns;
+    view.oy = my - wy * ns;
+    clampView();
+  } else if (tapCand && ev.pointerId === tapCand.id){
+    const [ix, iy] = clientToInternal(ev.clientX, ev.clientY);
+    if (Math.hypot(ix - tapCand.ix, iy - tapCand.iy) > TAP_SLOP) tapCand = null;
+  }
+});
+function ptrEnd(ev){
+  ptrs.delete(ev.pointerId);
+  if (gest && ptrs.size < 2) gest = null;
+  if (tapCand && ev.pointerId === tapCand.id){
+    const [ix, iy] = clientToInternal(ev.clientX, ev.clientY);
+    if (Math.hypot(ix - tapCand.ix, iy - tapCand.iy) <= TAP_SLOP){
+      const nowT = performance.now();
+      if (nowT - lastTapAt < 350 && view.scale > 1.01){
+        resetView();                            // 雙擊：回到全圖
+        lastTapAt = 0;
+      } else {
+        lastTapAt = nowT;
+        handleTap(ix, iy);
+      }
+    }
+    tapCand = null;
+  }
+}
+cv.addEventListener('pointerup', ptrEnd);
+cv.addEventListener('pointercancel', ptrEnd);
 
 /* ── 塔選單（升級／拆除） ─────────────────────────── */
 function openTowerMenu(t){
@@ -1124,8 +1308,10 @@ function openTowerMenu(t){
   m.classList.remove('hidden');
   const r = cv.getBoundingClientRect();
   const st = $('stage').getBoundingClientRect();
-  let mx = r.left - st.left + (t.gx+1)*CELL * (r.width/W);
-  let my = r.top - st.top + t.gy*CELL * (r.height/H);
+  const sx = ((t.gx+1)*CELL) * view.scale + view.ox;   // 世界→內部像素（含縮放）
+  const sy = (t.gy*CELL) * view.scale + view.oy;
+  let mx = r.left - st.left + sx * (r.width/W);
+  let my = r.top - st.top + sy * (r.height/H);
   m.style.left = Math.min(mx, st.width - 150) + 'px';
   m.style.top  = Math.max(0, my) + 'px';
 }
@@ -1250,7 +1436,7 @@ function relayout(){
     if (S.critter){ const tx = S.critter.x; S.critter.x = S.critter.y; S.critter.y = tx; }
     S.projs = []; S.fx = []; S.beam = null;   // 投射物/特效瞬移易錯，直接汰換
     buildGround();
-    closeTowerMenu(); selShop = -1; selSup = -1;
+    closeTowerMenu(); closeBuildMenu(); resetView(); selShop = -1; selSup = -1;
     // 暫停 0.6 秒讓玩家重新定位
     S.paused = true;
     const gen = runGen;
@@ -1344,6 +1530,8 @@ function startGame(){
   quizUsed = [];
   selShop = -1; selTower = null; speedIdx = 0; selSup = -1; hitStop = 0;
   closeTowerMenu();
+  closeBuildMenu();
+  resetView();
   hide('quizScreen');
   const fx = document.getElementById('stageClear');
   if (fx) fx.classList.add('hidden');

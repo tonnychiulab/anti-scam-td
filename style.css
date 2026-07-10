@@ -334,3 +334,45 @@ body[data-layout="mland"] #cv{
   max-height:calc(100dvh - 150px);
   min-height:220px;
 }
+
+
+/* ═══════════ v2.0.0-β 建造面板＋縮放 ═══════════ */
+/* 手機：canvas 手勢自管（雙指縮放），瀏覽器不介入 */
+body[data-layout="mland"] #cv, body[data-layout="mport"] #cv{touch-action:none;}
+/* 手機：隱藏 14 顆武器鈕（改用點地建造面板），保留出怪鈕 */
+body[data-layout="mland"] .tower-btn, body[data-layout="mport"] .tower-btn{display:none;}
+body[data-layout="mland"] .wave-btn, body[data-layout="mport"] .wave-btn{
+  position:static; width:100%; min-width:0; font-size:17px;
+}
+
+/* 建造面板：bottom-sheet */
+.build-menu{
+  position:fixed; left:0; right:0; bottom:0; z-index:45;
+  background:var(--bg2); border-top:3px solid var(--ink);
+  box-shadow:0 -6px 0 rgba(0,0,0,.5);
+  padding:10px 10px calc(10px + env(safe-area-inset-bottom));
+  animation:bmIn .2s steps(3);
+}
+@keyframes bmIn{from{transform:translateY(40%);} to{transform:translateY(0);}}
+.bm-title{
+  font-family:var(--font-zh); font-size:15px; color:var(--gold);
+  text-align:center; margin-bottom:8px;
+}
+.bm-list{
+  display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;
+  -webkit-overflow-scrolling:touch; scrollbar-width:none;
+}
+.bm-list::-webkit-scrollbar{display:none;}
+.bp-item{
+  flex:0 0 auto; min-width:76px; min-height:76px;
+  flex-direction:column; gap:2px; padding:6px 8px; font-size:12px;
+}
+.bp-item .bg{font-size:24px; line-height:1.1;}
+.bp-item .bn{font-family:var(--font-zh); font-size:11px; white-space:nowrap;}
+.bp-item .bc{font-size:11px; color:var(--gold);}
+.bp-item.poor{filter:grayscale(1) brightness(.55);}
+.bp-item.sel{background:var(--gold); color:#1b1b2f; border-color:#fff;}
+.bm-actions{display:flex; gap:10px; justify-content:center; margin-top:8px;}
+.bm-actions .pixel-btn{font-size:17px; min-width:150px;}
+.bm-actions .pixel-btn:disabled{background:#3a3a52; color:var(--dim); cursor:default;}
+#bmNo{min-width:64px;}

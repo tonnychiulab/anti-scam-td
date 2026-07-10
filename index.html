@@ -40,7 +40,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.0-a1</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.0-b1</span></p>
   </div>
 </div>
 
@@ -100,6 +100,16 @@
       <button id="tmSell" class="pixel-btn mini danger"><span id="tmSellLbl">拆除</span> +🪙<span id="tmSellGain"></span></button>
     </div>
   </main>
+
+  <!-- 點地建造面板（手機 bottom-sheet；桌機不啟用） -->
+  <div id="buildMenu" class="build-menu hidden">
+    <div class="bm-title" id="bmTitle">🔨 這格要蓋哪座防詐塔？</div>
+    <div class="bm-list" id="bmList"></div>
+    <div class="bm-actions">
+      <button id="bmOk" class="pixel-btn primary" disabled>✓ 建造</button>
+      <button id="bmNo" class="pixel-btn danger">✗</button>
+    </div>
+  </div>
 
   <footer id="shop">
     <button class="tower-btn pixel-btn" data-t="0" title="便宜快手，曾攔下無數買點數的受害者">
