@@ -1,58 +1,99 @@
-/* 防詐迷宮 Service Worker — stale-while-revalidate＋離線導航後備
-   相對路徑設計，可直接部署 GitHub Pages 子目錄 */
+/* Anti-Scam Defense Service Worker: app-shell precache + stale-while-revalidate. */
 'use strict';
-const CACHE = 'asmd-v2.0.0';   // 與 game.js 的 APP_VERSION 同步遞增
-const ASSETS = ['./', './index.html', './style.css', './game.js', './i18n.js',
-  './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
-self.addEventListener('install', ev => {
-  ev.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+const CACHE_PREFIX = 'asmd-';
+const CACHE = `${CACHE_PREFIX}v2.0.2`;
+const ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './game.js',
+  './i18n.js',
+  './manifest.webmanifest',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-512.png'
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE)
+      .then(cache => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', ev => {
-  ev.waitUntil(
+self.addEventListener('activate', event => {
+  event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(
+        keys
+          .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE)
+          .map(key => caches.delete(key))
+      ))
       .then(() => self.clients.claim())
   );
 });
 
-async function report(hit){
+async function report(hit) {
   const clients = await self.clients.matchAll({ includeUncontrolled: true });
-  clients.forEach(c => c.postMessage({ asmdCache: hit }));
+  clients.forEach(client => client.postMessage({ asmdCache: hit }));
 }
 
-self.addEventListener('fetch', ev => {
-  const req = ev.request;
-  if (req.method !== 'GET') return;
-  ev.respondWith((async () => {
-    const cached = await caches.match(req, { ignoreSearch: true });
-    const url = new URL(req.url);
-    const cacheable = url.origin === location.origin ||
-                      url.hostname.endsWith('gstatic.com') ||
-                      url.hostname.endsWith('googleapis.com');
-    // 背景更新：即使忘了 bump 版本，下次載入也會拿到新檔
-    const refresh = fetch(req).then(res => {
-      if (res && (res.ok || res.type === 'opaque') && cacheable){
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(req, clone));
-      }
-      return res;
-    }).catch(() => null);
-    if (cached){
-      report(true);
-      ev.waitUntil(refresh);           // stale-while-revalidate
+async function fetchAndCache(request) {
+  let response;
+
+  try {
+    response = await fetch(request);
+  } catch (_) {
+    return null;
+  }
+
+  // The caller limits this to same-origin GETs; only successful responses are cached.
+  if (response.ok) {
+    try {
+      const cache = await caches.open(CACHE);
+      await cache.put(request, response.clone());
+    } catch (_) {
+      // A cache write failure must not hide an otherwise usable network response.
+    }
+  }
+
+  return response;
+}
+
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  // Let the browser handle mutations and third-party resources without caching them.
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  const cachePromise = caches.open(CACHE);
+  const cachedPromise = cachePromise.then(cache => cache.match(request));
+  const refreshPromise = cachedPromise.then(() => fetchAndCache(request));
+
+  // Keep the worker alive until both fetch and cache.put have completed.
+  event.waitUntil(refreshPromise.then(() => undefined));
+
+  event.respondWith((async () => {
+    const cached = await cachedPromise;
+    if (cached) {
+      void report(true);
       return cached;
     }
-    report(false);
-    const res = await refresh;
-    if (res) return res;
-    if (req.mode === 'navigate'){      // 離線導航後備
-      const home = await caches.match('./index.html');
-      if (home) return home;
+
+    void report(false);
+    const response = await refreshPromise;
+    if (response) return response;
+
+    if (request.mode === 'navigate') {
+      const cache = await cachePromise;
+      const fallbackUrl = new URL('./index.html', self.registration.scope);
+      const fallback = await cache.match(fallbackUrl.href);
+      if (fallback) return fallback;
     }
+
     return Response.error();
   })());
 });

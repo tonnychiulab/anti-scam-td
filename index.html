@@ -3,15 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- 資安（CIA）：內容安全政策——僅允許自身腳本與 Google Fonts，杜絕外部注入 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'">
+<!-- 資安（CIA）：頁面資源僅允許同源；禁止物件嵌入與表單送出。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="description" content="防詐迷宮塔防：用 165 專線塔、查證雷達與防火牆守住民眾的錢包！87 關像素風公益遊戲。">
 <meta name="theme-color" content="#1b1b2f">
 <title>防詐迷宮 SCAM MAZE DEFENSE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Cubic+11&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
@@ -20,9 +17,9 @@
 <body>
 
 <!-- ══════════ 開始畫面 ══════════ -->
-<div id="startScreen" class="overlay show">
-  <div class="panel start-panel">
-    <h1 class="game-title"><span class="zh">防詐迷宮</span><br><span class="en">SCAM MAZE DEFENSE</span></h1>
+<div id="startScreen" class="overlay show" role="dialog" aria-modal="true" aria-labelledby="startTitle" aria-describedby="tagline">
+  <div class="panel start-panel" tabindex="-1">
+    <h1 class="game-title" id="startTitle"><span class="zh">防詐迷宮</span><br><span class="en">SCAM MAZE DEFENSE</span></h1>
     <p class="tagline" id="tagline">詐騙大軍正衝向民眾的錢包——<br>蓋出你的防詐迷宮，一關都別放過！</p>
     <div class="lang-row" role="group" aria-label="Language">
       <button class="pixel-btn mini lang-btn" data-lang="zh">中文</button>
@@ -42,17 +39,17 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.0</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.2</span></p>
   </div>
 </div>
 
 <!-- ══════════ 玩法說明 ══════════ -->
-<div id="howScreen" class="overlay">
-  <div class="panel">
+<div id="howScreen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="howTitle" aria-describedby="howListUl">
+  <div class="panel" tabindex="-1">
     <h2 id="howTitle">玩法說明</h2>
     <ul class="how-list" id="howListUl">
       <li>🏰 <b>目標：</b>阻止詐騙大軍走出迷宮、碰到「民眾」。共 <b>87 關</b>。</li>
-      <li>🔨 <b>蓋塔：</b>點下方武器，再點草地放置。點已蓋的塔可升級／拆除。</li>
+      <li>🔨 <b>蓋塔：</b>手機直接點草地選塔（雙指可縮放）；電腦先點下方武器，再點草地放置。點已蓋的塔可升級／拆除。</li>
       <li>🎲 <b>Roguelike 迷宮：</b>每關地圖重生，塔會<b>全額退回點數</b>讓你重新佈陣。</li>
       <li>🆕 <b>13 種武器隨關卡解鎖：</b>里長、記者、志工、電信、阿嬤、檢察官會陸續加入你的防詐國家隊！</li>
       <li>❤️ <b>血量＝民眾信任：</b>每成功<b>識別（擊破）一隻詐騙，血量 +1</b>；被詐騙溜進家門會扣血。</li>
@@ -93,10 +90,12 @@
   </div>
 
   <main id="stage">
-    <canvas id="cv" width="960" height="576"></canvas>
+    <p id="canvasHelp" class="sr-only">手機直接點草地選塔；電腦先點下方武器，再點草地放置。鍵盤可用方向鍵移動，Enter 或空白鍵操作格子，Escape 取消。點已蓋的塔可升級或拆除。</p>
+    <canvas id="cv" width="960" height="576" tabindex="0" role="application" aria-label="防詐迷宮遊戲棋盤" aria-describedby="canvasHelp">您的瀏覽器不支援互動遊戲畫布。玩法：手機點草地選塔；電腦先選下方武器，再點草地建造；鍵盤用方向鍵移動，Enter 或空白鍵操作。</canvas>
+    <div id="gameStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="waveBanner" class="wave-banner hidden"></div>
     <!-- 塔操作面板（在 #stage 內：position 計算才正確） -->
-    <div id="towerMenu" class="tower-menu hidden">
+    <div id="towerMenu" class="tower-menu hidden" role="group" aria-labelledby="tmName">
       <div id="tmName" class="tm-name"></div>
       <button id="tmUp" class="pixel-btn mini"><span id="tmUpLbl">升級</span> 🪙<span id="tmUpCost"></span></button>
       <button id="tmSell" class="pixel-btn mini danger"><span id="tmSellLbl">拆除</span> +🪙<span id="tmSellGain"></span></button>
@@ -104,7 +103,7 @@
   </main>
 
   <!-- 點地建造面板（手機 bottom-sheet；桌機不啟用） -->
-  <div id="buildMenu" class="build-menu hidden">
+  <div id="buildMenu" class="build-menu hidden" role="dialog" aria-labelledby="bmTitle">
     <div class="bm-title" id="bmTitle">🔨 這格要蓋哪座防詐塔？</div>
     <div class="bm-list" id="bmList"></div>
     <div class="bm-actions">
@@ -172,15 +171,15 @@
 </div>
 
 <!-- ══════════ 避開詐騙（續命）彈窗 ══════════ -->
-<div id="quizScreen" class="overlay">
-  <div class="panel quiz-panel">
+<div id="quizScreen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="quizTitle" aria-describedby="quizMsg quizResult">
+  <div class="panel quiz-panel" tabindex="-1">
     <h2 id="quizTitle">⚠️ 詐騙來襲！避開它就 +1 命</h2>
     <div id="quizMsg" class="quiz-msg"></div>
     <div class="quiz-btns">
       <button id="quizBad" class="pixel-btn danger"></button>
       <button id="quizGood" class="pixel-btn primary"></button>
     </div>
-    <div id="quizResult" class="quiz-result hidden"></div>
+    <div id="quizResult" class="quiz-result hidden" role="status" aria-live="polite" aria-atomic="true"></div>
   </div>
 </div>
 
@@ -202,8 +201,8 @@
 </div>
 
 <!-- ══════════ 遊戲結束 / 排行榜 ══════════ -->
-<div id="endScreen" class="overlay">
-  <div class="panel">
+<div id="endScreen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="endTitle" aria-describedby="endStats endComfort">
+  <div class="panel" tabindex="-1">
     <h2 id="endTitle">GAME OVER</h2>
     <!-- 敗北安慰場景：暖光下的陪伴（像素插畫，無任何嘲諷元素） -->
     <svg id="endArt" class="end-art hidden" viewBox="0 0 48 30" aria-hidden="true">
@@ -246,8 +245,8 @@
   </div>
 </div>
 
-<div id="boardScreen" class="overlay">
-  <div class="panel">
+<div id="boardScreen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="boardTitle" aria-describedby="boardNote">
+  <div class="panel" tabindex="-1">
     <h2 id="boardTitle">🏆 防詐英雄榜</h2>
     <ol id="boardList" class="board-list"></ol>
     <p class="board-note" id="boardNote">成績儲存在你的瀏覽器（匿名、不上傳）</p>
@@ -257,11 +256,12 @@
 
 <div id="screenFlash" aria-hidden="true"></div>
 
-<!-- PWA 安裝提示（過第 3 關後一次性、可永久關閉） -->
-<div id="pwaBar" class="pwa-bar hidden">
+<!-- PWA 安裝提示：「之後再說」只關閉當次；只有「不再提示」會永久記錄。 -->
+<div id="pwaBar" class="pwa-bar hidden" role="region" aria-labelledby="pwaMsg">
   <span id="pwaMsg" class="pwa-msg">📲 把「防詐迷宮」加入主畫面，隨時防詐！</span>
   <button id="pwaYes" class="pixel-btn mini primary">安裝</button>
   <button id="pwaNo" class="pixel-btn mini">之後再說</button>
+  <button id="pwaNever" class="pixel-btn mini danger">不再提示</button>
 </div>
 
 <div id="cacheStat" title="版本與靜態資源快取命中率（Service Worker）">CACHE --</div>
