@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.0.2';
+const APP_VERSION = 'v2.1.0';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -147,6 +147,99 @@ let selSup = -1;       // 支援瞄準模式
 let runGen = 0;        // 局次世代：舊局的 setTimeout 回呼不得影響新局
 let layoutPauseGen = 0;// 轉向暫停世代：只准最後一次轉向解除暫停
 let hitStop = 0;       // 慢動作剩餘秒數
+let supportAim = null; // {i,x,y,hits,knockbacks,localHits,globalHits}
+let lightCharge = { active:false, timer:0, token:0 };
+let sellConfirmTower = null, sellConfirmUntil = 0, sellConfirmTimer = 0;
+let upgradeLockedUntil = 0;
+let towerMenuRefreshAt = 0;
+let morePauseWasManual = false;
+let scoreToastValue = 0, scoreToastTimer = 0;
+
+const UX_PREF_KEY = 'asmd_ux_v21';
+function defaultUxPrefs(){
+  let reduceMotion = false;
+  try{ reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(e){}
+  return { quality:'auto', reduceMotion, reduceFlash:false, lastStable:'full' };
+}
+function loadUxPrefs(){
+  const base = defaultUxPrefs();
+  try{
+    const saved = JSON.parse(localStorage.getItem(UX_PREF_KEY));
+    if (!saved || typeof saved !== 'object') return base;
+    if (['auto','full','compact'].includes(saved.quality)) base.quality = saved.quality;
+    if (typeof saved.reduceMotion === 'boolean') base.reduceMotion = saved.reduceMotion;
+    if (typeof saved.reduceFlash === 'boolean') base.reduceFlash = saved.reduceFlash;
+    if (['full','compact','minimum'].includes(saved.lastStable)) base.lastStable = saved.lastStable;
+  }catch(e){}
+  return base;
+}
+let uxPrefs = loadUxPrefs();
+let actualQuality = uxPrefs.quality === 'auto' ? uxPrefs.lastStable : uxPrefs.quality;
+let perfState = {
+  fps:60, below45At:0, below30At:0, above55At:0,
+  lastChange:-Infinity, downgradedWave:0,
+};
+function saveUxPrefs(){
+  try{ localStorage.setItem(UX_PREF_KEY, JSON.stringify(uxPrefs)); }catch(e){}
+}
+function qualityLabel(mode){
+  const labels = L().ui.qualityModes || {};
+  return labels[mode] || mode;
+}
+function applyQualityClass(){
+  if (!document.body) return;
+  document.body.classList.toggle('reduce-motion', !!uxPrefs.reduceMotion);
+  document.body.classList.toggle('quality-compact', actualQuality === 'compact');
+  document.body.classList.toggle('quality-minimum', actualQuality === 'minimum');
+  const status = document.getElementById('qualityStatus');
+  if (status) status.textContent = fmt(L().ui.qualityStatus, {
+    selected:qualityLabel(uxPrefs.quality), active:qualityLabel(actualQuality),
+  });
+}
+function setActualQuality(mode, at, remember=true){
+  if (!['full','compact','minimum'].includes(mode) || mode === actualQuality) return false;
+  actualQuality = mode;
+  perfState.lastChange = Number.isFinite(at) ? at : performance.now();
+  perfState.below45At = perfState.below30At = perfState.above55At = 0;
+  if (remember && uxPrefs.quality === 'auto'){
+    uxPrefs.lastStable = mode;
+    saveUxPrefs();
+  }
+  applyQualityClass();
+  if (S) buildGround();
+  return true;
+}
+function performanceSampleAllowed(){
+  return !!(S && document.visibilityState !== 'hidden' && !S.paused && !S.over &&
+    S.phase === 'wave' && S.waveActive && !S.layoutPaused);
+}
+function sampleAutoQuality(ts, frameMs){
+  if (uxPrefs.quality !== 'auto' || !performanceSampleAllowed() || !Number.isFinite(frameMs) || frameMs <= 0) return;
+  const fps = Math.min(120, 1000 / frameMs);
+  perfState.fps = perfState.fps * .9 + fps * .1;
+  const canChange = ts - perfState.lastChange >= 15000;
+  if (perfState.fps < 45){
+    if (!perfState.below45At) perfState.below45At = ts;
+  } else perfState.below45At = 0;
+  if (perfState.fps < 30){
+    if (!perfState.below30At) perfState.below30At = ts;
+  } else perfState.below30At = 0;
+  if (perfState.fps > 55){
+    if (!perfState.above55At) perfState.above55At = ts;
+  } else perfState.above55At = 0;
+  const notYetDowngraded = perfState.downgradedWave !== S.level;
+  if (canChange && notYetDowngraded && actualQuality === 'full' && perfState.below45At && ts - perfState.below45At >= 3000){
+    if (setActualQuality('compact', ts)) perfState.downgradedWave = S.level;
+  } else if (canChange && notYetDowngraded && actualQuality === 'compact' && perfState.below30At && ts - perfState.below30At >= 2000){
+    if (setActualQuality('minimum', ts)) perfState.downgradedWave = S.level;
+  }
+}
+function maybeRaiseAutoQuality(ts){
+  if (uxPrefs.quality !== 'auto' || !S || S.phase !== 'setup' || !perfState.above55At ||
+      ts - perfState.above55At < 12000 || ts - perfState.lastChange < 15000) return;
+  if (actualQuality === 'minimum') setActualQuality('compact', ts);
+  else if (actualQuality === 'compact') setActualQuality('full', ts);
+}
 
 function newState(){
   return {
@@ -159,6 +252,10 @@ function newState(){
     autoT:0, mod:MODS[0],
     supCd:[0,0,0], beam:null,
     critter:null, critT: 9 + Math.random()*8,
+    stageScoreStart:0,
+    routeGuide:{active:false, started:0, duration:1000},
+    dangerWaveAlerted:false, dangerHapticDone:false, dangerFinal:false,
+    dangerCount:0, dangerLastDom:0, dangerClearSince:0, dangerEdgeTarget:null,
   };
 }
 function guardedTimeout(cb, delay, transitionToken){
@@ -192,6 +289,7 @@ function genMajorPath(lv){
 function genLevel(lv){
   closeTowerMenu();            // 防幽靈塔選單（換關後殘留的雙重退款漏洞）
   if (typeof closeBuildMenu === 'function') closeBuildMenu();
+  if (typeof cancelSupportAction === 'function') cancelSupportAction(false);
   let cells = genMajorPath(lv);
   if (LAYOUT === 'mport') cells = cells.map(([x, y]) => [y, x]);  // 直立：上→下防守
   S.path = cells;
@@ -207,6 +305,8 @@ function genLevel(lv){
   S.mod = (lv < 5 || lv % 10 === 0) ? MODS[0] : MODS[Math.floor(mrng()*MODS.length)];
   buildGround();
   buildWave(lv);
+  S.stageScoreStart = S.score;
+  startRouteGuide();
 }
 
 /* ── 波次組成 ─────────────────────────────────────── */
@@ -231,6 +331,22 @@ function buildWave(lv){
     for (let i=0;i<extra;i++) q.push({ ...q[Math.floor(rng()*q.length)] });
   }
   S.spawnQ = q; S.spawnT = 0; S.waveActive = false; S.phase = 'setup';
+  S.dangerWaveAlerted = false; S.dangerHapticDone = false; S.dangerFinal = false;
+  S.dangerCount = 0; S.dangerClearSince = 0; S.dangerEdgeTarget = null;
+}
+
+function startRouteGuide(){
+  if (!S) return;
+  S.routeGuide = {
+    active:true,
+    started:performance.now(),
+    duration:S.level <= 3 ? 1000 : 700,
+  };
+}
+function finishRouteGuide(){
+  if (!S || !S.routeGuide || !S.routeGuide.active) return false;
+  S.routeGuide.active = false;
+  return true;
 }
 
 /* ── 敵人 ─────────────────────────────────────────── */
@@ -243,6 +359,7 @@ function spawnEnemy(item){
     seg:0, prog:0, x:S.path[0][0]*CELL+CELL/2, y:S.path[0][1]*CELL+CELL/2,
     spd:t.spd, slowLeft:0, slowPct:0, stunLeft:0,
     markLeft:0, dead:false, wob:Math.random()*6.28,
+    dangerWarned:!!item.dangerWarned, dangerActive:false,
   });
 }
 function moveEnemy(e, dt){
@@ -262,6 +379,85 @@ function moveEnemy(e, dt){
   }
   if (e.seg >= S.path.length - 1) return true;  // 抵達民眾家
   return false;
+}
+
+function enemyPathProgress(e){
+  const total = Math.max(1, S.path.length - 1);
+  return Math.max(0, Math.min(1, (e.seg + e.prog) / total));
+}
+function placeDangerEdge(target){
+  const edge = document.getElementById('dangerEdge');
+  if (!edge || !target || view.scale <= 1.01){
+    if (edge) edge.classList.add('hidden');
+    if (S) S.dangerEdgeTarget = null;
+    return;
+  }
+  const sx = target.x * view.scale + view.ox;
+  const sy = target.y * view.scale + view.oy;
+  if (sx >= 12 && sx <= W-12 && sy >= 12 && sy <= H-12){
+    edge.classList.add('hidden');
+    S.dangerEdgeTarget = null;
+    return;
+  }
+  const rect = cv.getBoundingClientRect();
+  const stageRect = document.getElementById('stage').getBoundingClientRect();
+  const margin = 26;
+  const px = rect.left - stageRect.left + Math.max(margin, Math.min(W-margin, sx)) * rect.width / W;
+  const py = rect.top - stageRect.top + Math.max(margin, Math.min(H-margin, sy)) * rect.height / H;
+  edge.style.left = Math.max(0, Math.min(stageRect.width-58, px-28)) + 'px';
+  edge.style.top = Math.max(0, Math.min(stageRect.height-48, py-22)) + 'px';
+  S.dangerEdgeTarget = target;
+  edge.classList.remove('hidden');
+}
+function updateDangerState(now){
+  if (!S) return;
+  const dangerous = [];
+  let finalCount = 0;
+  for (const e of S.enemies){
+    if (e.dead) continue;
+    const progress = enemyPathProgress(e);
+    if (progress >= .8){
+      e.dangerActive = true;
+      if (!e.dangerWarned) e.dangerWarned = true;
+    } else if (progress < .75) e.dangerActive = false;
+    if (e.dangerActive){
+      dangerous.push(e);
+      if (progress >= .92) finalCount++;
+    }
+  }
+  dangerous.sort((a,b) => enemyPathProgress(b) - enemyPathProgress(a));
+  if (dangerous.length && !S.dangerWaveAlerted){
+    S.dangerWaveAlerted = true;
+    banner(L().ui.dangerAlert);
+    const alert = document.getElementById('dangerAlert');
+    if (alert) alert.textContent = L().ui.dangerAlert;
+    if (!S.dangerHapticDone){
+      S.dangerHapticDone = true;
+      try{ if (navigator.vibrate) navigator.vibrate(40); }catch(e){}
+    }
+  }
+  S.dangerFinal = finalCount > 0;
+  S.dangerCount = dangerous.length;
+  if (dangerous.length) S.dangerClearSince = 0;
+  else if (!S.dangerClearSince) S.dangerClearSince = now;
+  if (now - S.dangerLastDom >= 250){
+    S.dangerLastDom = now;
+    const holdVisual = dangerous.length || (S.dangerClearSince && now - S.dangerClearSince < 2000);
+    if (document.body) document.body.classList.toggle('danger-active', !!holdVisual);
+    if (!holdVisual){
+      const waveBanner = document.getElementById('waveBanner');
+      if (waveBanner && waveBanner.textContent === L().ui.dangerAlert) waveBanner.classList.add('hidden');
+      const alert = document.getElementById('dangerAlert');
+      if (alert) alert.textContent = '';
+    }
+    const offscreen = dangerous.filter(e => {
+      const sx = e.x * view.scale + view.ox, sy = e.y * view.scale + view.oy;
+      return sx < 12 || sx > W-12 || sy < 12 || sy > H-12;
+    });
+    const edge = document.getElementById('dangerEdge');
+    if (edge) edge.textContent = `⚠ ×${offscreen.length}`;
+    placeDangerEdge(offscreen[0] || null);
+  }
 }
 
 /* ── 塔攻擊 ───────────────────────────────────────── */
@@ -331,7 +527,9 @@ function hitEnemy(e, dmg, src){
     e.dead = true;
     S.kills++;
     S.coins += t.gold + (S.mod.gold || 0);   // 豐收日加成
-    S.score += Math.round(t.score * (1 + S.level*.02));
+    const scoreGain = Math.round(t.score * (1 + S.level*.02));
+    S.score += scoreGain;
+    if (typeof queueScoreGain === 'function') queueScoreGain(scoreGain);
     S.hp = Math.min(HP_CAP, S.hp + 1);        // ★ 識別詐騙 → 血量+1
     burst(e.x, e.y, t.c1, t.boss?26:10);
     S.fx.push({ txt:fmt(L().ui.killFloat, {name:L().enemies[e.ti]}), x:e.x, y:e.y-16, life:.9 });
@@ -399,6 +597,8 @@ function moveProj(p, dt){
 /* ── 粒子特效 ─────────────────────────────────────── */
 function burst(x, y, color, n){
   if (LAYOUT !== 'desktop') n = Math.max(3, Math.floor(n / 2));   // 行動裝置粒子減半
+  if (actualQuality === 'compact') n = Math.max(2, Math.floor(n * .55));
+  else if (actualQuality === 'minimum') n = Math.max(1, Math.floor(n * .25));
   for (let i=0;i<n;i++){
     const a = Math.random()*6.28, v = 40+Math.random()*140;
     S.fx.push({x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:.5+Math.random()*.3, color});
@@ -449,6 +649,10 @@ function sfxBoom(freq){
 function screenFlash(color){
   const el = document.getElementById('screenFlash');
   if (!el) return;
+  if (uxPrefs.reduceFlash){
+    color = String(color).replace(/rgba\(([^)]+),\s*([\d.]+)\)/, (_m, rgb, a) =>
+      `rgba(${rgb},${Math.min(.12, Number(a) || .12)})`);
+  }
   el.style.background = color;
   el.classList.remove('flash-on');
   void el.offsetWidth;   // 重觸發動畫
@@ -456,10 +660,93 @@ function screenFlash(color){
 }
 
 /* ── 特種部隊支援施放 ─────────────────────────────── */
+function supportCounts(i, x, y){
+  const live = S ? S.enemies.filter(e => !e.dead) : [];
+  if (i === 0){
+    const hits = live.filter(e => (e.x-x)**2 + (e.y-y)**2 <= 95*95);
+    return { hits:hits.length, knockbacks:hits.filter(e => !ETYPES[e.ti].boss).length, localHits:hits.length, globalHits:live.length };
+  }
+  const localHits = live.filter(e => (e.x-x)**2 + (e.y-y)**2 <= 140*140).length;
+  return { hits:live.length, knockbacks:0, localHits, globalHits:live.length };
+}
+function renderSupportConfirm(){
+  const panel = document.getElementById('supportConfirm');
+  if (!panel) return;
+  if (!supportAim){ panel.classList.add('hidden'); return; }
+  const counts = supportCounts(supportAim.i, supportAim.x, supportAim.y);
+  Object.assign(supportAim, counts);
+  const title = document.getElementById('scTitle');
+  const summary = document.getElementById('scSummary');
+  const ok = document.getElementById('scOk');
+  if (title) title.textContent = L().support.confirmTitle;
+  if (summary) summary.textContent = supportAim.i === 0
+    ? fmt(L().support.ramPreview, {hits:counts.hits, knocks:counts.knockbacks})
+    : fmt(L().support.flashPreview, {global:counts.globalHits, local:counts.localHits});
+  if (ok){
+    ok.textContent = L().support.confirm;
+    ok.disabled = supportAim.i === 0 ? counts.hits === 0 : counts.globalHits === 0;
+  }
+  const no = document.getElementById('scNo');
+  if (no) no.setAttribute('aria-label', L().support.cancel);
+  panel.classList.remove('hidden');
+}
+function cancelSupportAction(update=true){
+  if (lightCharge.timer) clearTimeout(lightCharge.timer);
+  lightCharge = { active:false, timer:0, token:lightCharge.token+1 };
+  selSup = -1;
+  supportAim = null;
+  const panel = document.getElementById('supportConfirm');
+  if (panel) panel.classList.add('hidden');
+  if (update && S){ updateHUD(); draw(); }
+}
+function beginSupportAim(i){
+  cancelSupportAction(false);
+  selSup = i;
+  supportAim = null;
+  closeBuildMenu(); closeTowerMenu(); selShop = -1;
+  banner(L().support.aim);
+  updateHUD(); focusBoard();
+}
+function setSupportTarget(i, x, y){
+  if (!S || selSup !== i || (i !== 0 && i !== 1)) return;
+  supportAim = { i, x, y };
+  renderSupportConfirm();
+  draw();
+}
+function confirmSupportTarget(){
+  if (!S || !supportAim || selSup !== supportAim.i) return false;
+  const counts = supportCounts(supportAim.i, supportAim.x, supportAim.y);
+  const allowed = supportAim.i === 0 ? counts.hits > 0 : counts.globalHits > 0;
+  if (!allowed) return false;
+  useSupport(supportAim.i, supportAim.x, supportAim.y);
+  return true;
+}
+function startLightCharge(){
+  if (!S || S.enemies.every(e => e.dead)) return false;
+  if (lightCharge.active){ cancelSupportAction(); return false; }
+  cancelSupportAction(false);
+  const token = lightCharge.token + 1;
+  lightCharge = { active:true, timer:0, token };
+  selSup = 2; selShop = -1; closeBuildMenu(); closeTowerMenu();
+  banner(fmt(L().support.lightCharge, {dir:LAYOUT === 'mport' ? L().support.vertical : L().support.horizontal}));
+  updateHUD();
+  lightCharge.timer = setTimeout(() => {
+    if (!S || S.over || !lightCharge.active || lightCharge.token !== token || S.enemies.every(e => e.dead)){
+      cancelSupportAction(); return;
+    }
+    useSupport(2, 0, 0);
+  }, 500);
+  return true;
+}
 function useSupport(i, px, py){
   const sp = SUPPORT[i];
+  if (!S || !sp || S.level < sp.unlock || S.supCd[i] > 0) return false;
   S.supCd[i] = sp.cd;
-  selSup = -1;
+  if (lightCharge.timer) clearTimeout(lightCharge.timer);
+  lightCharge = { active:false, timer:0, token:lightCharge.token+1 };
+  selSup = -1; supportAim = null;
+  const supportPanel = document.getElementById('supportConfirm');
+  if (supportPanel) supportPanel.classList.add('hidden');
   banner(L().support.arrive);
   if (sp.key === 'ram'){
     // 破門錘：重擊＋擊退＋慢動作
@@ -499,6 +786,7 @@ function useSupport(i, px, py){
     S.beam = { pos:-40, axis: vert ? 'y' : 'x', spd:((vert ? H : W) + 120)/1.15, hit:new Set() };
   }
   updateHUD();
+  return true;
 }
 
 /* ── 草地小幫手 ───────────────────────────────────── */
@@ -600,7 +888,10 @@ function startWave(){
 function loop(ts){
   raf = 0;
   if (!S || S.paused || S.over || S.phase === 'clearing'){ lastT = ts; return; }
-  const rawDt = Math.min(.05, (ts - lastT)/1000);
+  const frameMs = Math.max(1, ts - lastT);
+  if (typeof sampleAutoQuality === 'function') sampleAutoQuality(ts, frameMs);
+  if (typeof maybeRaiseAutoQuality === 'function') maybeRaiseAutoQuality(ts);
+  const rawDt = Math.min(.05, frameMs/1000);
   lastT = ts;
   let dt = rawDt * SPEEDS[speedIdx];
   if (hitStop > 0){ hitStop -= rawDt; dt *= .22; }   // 破門錘慢動作
@@ -667,6 +958,11 @@ function loop(ts){
     }
   }
   S.enemies = S.enemies.filter(e => !e.dead);
+  if (typeof updateDangerState === 'function') updateDangerState(now);
+  if (typeof supportAim !== 'undefined' && supportAim && (!supportAim.lastRender || now - supportAim.lastRender >= 250)){
+    supportAim.lastRender = now;
+    if (typeof renderSupportConfirm === 'function') renderSupportConfirm();
+  }
   // gameOver 可能在敵人移動中發生；同一幀不得再讓塔、投射物或志工加分。
   if (S.over){ updateHUD(); draw(); return; }
   // 塔與投射物
@@ -724,6 +1020,7 @@ function loseLife(){
     .map(e => ({
       ti:e.ti, gap:.25, hpMul:e.hpMax / ETYPES[e.ti].hp,
       hp:e.hp, hpMax:e.hpMax,
+      ...(e.dangerWarned ? {dangerWarned:true} : {}),
     }));
   S.spawnQ = active.concat(S.spawnQ);
   S.enemies = []; S.projs = []; S.allies = []; S.beam = null;
@@ -741,6 +1038,10 @@ function gameOver(win){
   S.transitionGen++;
   stopLoop();
   cancelPendingTap();
+  if (typeof cancelSupportAction === 'function') cancelSupportAction(false);
+  if (document.body) document.body.classList.remove('danger-active');
+  const dangerEdge = document.getElementById('dangerEdge');
+  if (dangerEdge) dangerEdge.classList.add('hidden');
   const t = document.getElementById('endTitle');
   t.textContent = win ? L().ui.winTitle : L().ui.loseTitle;
   // 敗北＝最接近受害者的時刻：切換為安慰提醒場景，絕不嘲諷
@@ -781,8 +1082,20 @@ function levelClear(){
   cancelPendingTap();
   closeTowerMenu();
   closeBuildMenu();
-  S.score += 50 + S.level * 5;
+  if (typeof cancelSupportAction === 'function') cancelSupportAction(false);
+  const clearScoreGain = 50 + S.level * 5;
+  S.score += clearScoreGain;
+  if (typeof queueScoreGain === 'function') queueScoreGain(clearScoreGain);
   S.coins += 40 + Math.floor(S.level * 2) + Math.floor(S.coins * .05); // 過關獎勵＋5% 利息
+  if (typeof guardedTimeout === 'function') guardedTimeout(() => {
+    if (document.body) document.body.classList.remove('danger-active');
+    const edge = document.getElementById('dangerEdge');
+    const alert = document.getElementById('dangerAlert');
+    const wave = document.getElementById('waveBanner');
+    if (edge) edge.classList.add('hidden');
+    if (alert) alert.textContent = '';
+    if (wave && wave.textContent === L().ui.dangerAlert) wave.classList.add('hidden');
+  }, 2000, token);
   if (S.level >= MAX_LEVEL){ playClearFx(() => gameOver(true), token); return true; }
   playClearFx(() => {
     if (S.level % 3 === 0) showQuiz(() => afterQuiz(token), token);
@@ -823,6 +1136,10 @@ function playClearFx(cb, token){
     `STAGE ${S.level} ` + CLEAR_EN[Math.floor(Math.random()*CLEAR_EN.length)];
   document.getElementById('clearWordZh').textContent =
     L().ui.clear[Math.floor(Math.random()*L().ui.clear.length)];
+  const clearScore = document.getElementById('clearScore');
+  if (clearScore) clearScore.textContent = fmt(L().ui.clearScore, {
+    gain:Math.max(0, S.score - S.stageScoreStart), total:S.score,
+  });
   document.getElementById('clearTip').textContent = '💡 ' + L().tips[(S.level - 1) % L().tips.length];
   fx.classList.remove('hidden','out');
   fx.setAttribute('aria-hidden', 'false');
@@ -870,7 +1187,10 @@ function showQuiz(cb, token){
       if (gained) S.lives++;
       res.classList.add('ok');
       res.textContent = (gained ? L().ui.quizOkLife : L().ui.quizOkFull) + '\n' + q.why;
-      if (!gained) S.score += 100;
+      if (!gained){
+        S.score += 100;
+        if (typeof queueScoreGain === 'function') queueScoreGain(100);
+      }
       sfx(880,.15); guardedTimeout(()=>sfx(1320,.2),130,token);
     } else {
       S.hp = Math.max(1, S.hp - 5);
@@ -888,7 +1208,10 @@ function showQuiz(cb, token){
 
 /* ══════════════════ 繪圖 ══════════════════ */
 let shakeAmt = 0;
-function shake(n){ shakeAmt = n; }
+function shake(n){
+  if (uxPrefs.reduceMotion || actualQuality === 'minimum'){ shakeAmt = 0; return; }
+  shakeAmt = actualQuality === 'compact' ? n * .55 : n;
+}
 
 /* 地面繪製（草地＋泥徑）：可畫到離屏畫布或主畫布 */
 let groundCv = null;
@@ -900,7 +1223,9 @@ function paintGround(g){
     if (S.grid[y][x] === 1) continue;              // 路面另外畫
     let h = ((x*73856093) ^ (y*19349663) ^ 0x9e3779b9) >>> 0;
     const rnd = () => { h = (h*1664525+1013904223)>>>0; return h/4294967296; };
-    const blades = (LAYOUT === 'desktop' ? 4 : 3) + Math.floor(rnd()*(LAYOUT === 'desktop' ? 4 : 2));  // 草刃（行動裝置減量）
+    const baseBlades = actualQuality === 'minimum' ? 0 : actualQuality === 'compact' ? 2 : (LAYOUT === 'desktop' ? 4 : 3);
+    const bladeVariance = actualQuality === 'full' ? (LAYOUT === 'desktop' ? 4 : 2) : 1;
+    const blades = baseBlades + Math.floor(rnd()*bladeVariance);
     for (let i=0;i<blades;i++){
       const bx = px + 4 + rnd()*(CELL-10);
       const by = py + 6 + rnd()*(CELL-14);
@@ -939,6 +1264,25 @@ function buildGround(){
   }catch(e){ groundCv = null; }
 }
 
+function drawRouteGuide(now){
+  const guide = S && S.routeGuide;
+  if (!guide || !guide.active || !S.path.length) return;
+  const elapsed = Math.max(0, now - guide.started);
+  if (elapsed >= guide.duration){ guide.active = false; return; }
+  const progress = uxPrefs.reduceMotion ? 1 : Math.min(1, elapsed / guide.duration);
+  const count = Math.max(1, Math.ceil(S.path.length * progress));
+  ctx.save();
+  ctx.fillStyle = uxPrefs.reduceFlash ? 'rgba(255,209,102,.16)' : 'rgba(255,243,176,.3)';
+  ctx.strokeStyle = '#fff3b0'; ctx.lineWidth = 3;
+  for (let i=0;i<count;i++){
+    const [gx,gy] = S.path[i];
+    ctx.fillRect(gx*CELL+4, gy*CELL+4, CELL-8, CELL-8);
+  }
+  const [hx,hy] = S.path[Math.min(count-1, S.path.length-1)];
+  ctx.strokeRect(hx*CELL+5, hy*CELL+5, CELL-10, CELL-10);
+  ctx.restore();
+}
+
 function draw(){
   ctx.save();
   ctx.setTransform(view.scale, 0, 0, view.scale, view.ox, view.oy);
@@ -951,12 +1295,17 @@ function draw(){
     try{ ctx.drawImage(groundCv, 0, 0); }
     catch(e){ groundCv = null; paintGround(ctx); }
   } else paintGround(ctx);
+  drawRouteGuide(performance.now());
   // 起點傳送門
   const [sx,sy] = S.path[0];
   drawPortal(sx*CELL+CELL/2, sy*CELL+CELL/2);
   // 終點民眾之家
   const [ex,ey] = S.path[S.path.length-1];
   drawHouse(ex*CELL+CELL/2, ey*CELL+CELL/2);
+  if (S.dangerCount > 0){
+    ctx.beginPath(); ctx.arc(ex*CELL+CELL/2, ey*CELL+CELL/2, 25 + (uxPrefs.reduceMotion ? 0 : Math.sin(performance.now()/110)*4), 0, 6.28);
+    ctx.strokeStyle = '#ef476f'; ctx.lineWidth = 4; ctx.stroke();
+  }
   // 塔射程（選中時）
   if (selTower){
     ctx.beginPath();
@@ -967,7 +1316,13 @@ function draw(){
     ctx.stroke(); ctx.setLineDash([]);
   }
   // 塔
-  for (const t of S.towers) drawTower(t);
+  for (const t of S.towers){
+    drawTower(t);
+    if (sellConfirmTower === t && performance.now() < sellConfirmUntil){
+      ctx.strokeStyle = '#ef476f'; ctx.lineWidth = 3; ctx.setLineDash([5,4]);
+      ctx.strokeRect(t.gx*CELL+3, t.gy*CELL+3, CELL-6, CELL-6); ctx.setLineDash([]);
+    }
+  }
   // 建造預覽：目標格＋幽靈塔＋射程圈（未扣款）
   if (bp.open){
     const px = bp.gx*CELL, py = bp.gy*CELL;
@@ -986,7 +1341,25 @@ function draw(){
     }
   }
   // 敵人
-  for (const e of S.enemies) drawEnemy(e);
+  for (const e of S.enemies){
+    drawEnemy(e);
+    if (e.dangerActive){
+      ctx.beginPath(); ctx.arc(e.x, e.y, ETYPES[e.ti].boss ? 25 : 19, 0, 6.28);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(e.x, e.y, ETYPES[e.ti].boss ? 30 : 24, 0, 6.28);
+      ctx.strokeStyle = '#ef476f'; ctx.lineWidth = 3; ctx.stroke();
+    }
+  }
+  if (supportAim){
+    const radius = supportAim.i === 0 ? 95 : 140;
+    ctx.beginPath(); ctx.arc(supportAim.x, supportAim.y, radius, 0, 6.28);
+    ctx.fillStyle = supportAim.i === 0 ? 'rgba(255,123,57,.14)' : 'rgba(255,243,176,.14)'; ctx.fill();
+    ctx.strokeStyle = SUPPORT[supportAim.i].color; ctx.lineWidth = 3; ctx.setLineDash([7,5]); ctx.stroke(); ctx.setLineDash([]);
+    for (const e of S.enemies){
+      if (e.dead || (e.x-supportAim.x)**2 + (e.y-supportAim.y)**2 > radius*radius) continue;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(e.x-13,e.y-13,26,26);
+    }
+  }
   // 志工
   for (const a of S.allies) drawAlly(a);
   // 草地小幫手
@@ -1200,8 +1573,8 @@ function drawEnemy(e){
 
 /* ══════════════════ UI ══════════════════ */
 const $ = id => document.getElementById(id);
-const MODAL_IDS = new Set(['startScreen','howScreen','boardScreen','quizScreen','endScreen']);
-const ESCAPABLE_MODAL_IDS = new Set(['howScreen','boardScreen']);
+const MODAL_IDS = new Set(['startScreen','howScreen','boardScreen','quizScreen','endScreen','moreScreen']);
+const ESCAPABLE_MODAL_IDS = new Set(['howScreen','boardScreen','moreScreen']);
 const modalStack = [];
 let isolationSnapshot = null;
 
@@ -1240,6 +1613,11 @@ function applyControlA11y(){
     mute.setAttribute('title', label);
     mute.setAttribute('aria-label', label);
     mute.setAttribute('aria-pressed', String(muted));
+  }
+  const more = document.getElementById('btnMore');
+  if (more){
+    more.setAttribute('title', controls.more);
+    more.setAttribute('aria-label', controls.more + (muted ? `，${controls.muted}` : ''));
   }
 }
 
@@ -1328,7 +1706,9 @@ document.addEventListener('keydown', ev => {
   const el = document.getElementById(top.id);
   if (!el) return;
   if (ev.key === 'Escape' && ESCAPABLE_MODAL_IDS.has(top.id)){
-    ev.preventDefault(); ev.stopPropagation(); hide(top.id); return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (top.id === 'moreScreen') closeMore(); else hide(top.id);
+    return;
   }
   if (ev.key !== 'Tab') return;
   const items = modalFocusables(el);
@@ -1385,13 +1765,17 @@ function updateHUD(){
     const sp = SUPPORT[i]; if (!sp) return;
     const locked = S.level < sp.unlock;
     const cd = S.supCd[i];
+    const noEnemies = !S.enemies.some(e => !e.dead);
+    const charging = i === 2 && lightCharge.active;
     b.classList.toggle('locked', locked);
     b.classList.toggle('aiming', selSup === i);
     b.setAttribute('aria-pressed', String(selSup === i));
-    b.classList.toggle('ready', !locked && cd <= 0);
-    b.disabled = locked || cd > 0;
+    b.classList.toggle('ready', !locked && cd <= 0 && !noEnemies && !charging);
+    b.disabled = locked || cd > 0 || (noEnemies && !charging);
     const cdEl = b.querySelector && b.querySelector('.cd');
-    if (cdEl) cdEl.textContent = locked ? '🔒Lv.' + sp.unlock : (cd > 0 ? Math.ceil(cd) + 's' : 'GO');
+    if (cdEl) cdEl.textContent = locked ? '🔒Lv.' + sp.unlock
+      : charging ? L().support.cancelShort
+      : (cd > 0 ? Math.ceil(cd) + 's' : (noEnemies ? '—' : 'GO'));
   });
   const nb = $('btnNextWave');
   const canStart = !S.over && S.phase === 'setup' && !S.waveActive;
@@ -1399,6 +1783,22 @@ function updateHUD(){
   nb.textContent = S.phase === 'wave' || S.phase === 'clearing'
     ? L().ui.waveIn
     : (S.autoT > 0 ? fmt(L().ui.waveCount, {n:Math.ceil(S.autoT)}) : L().ui.waveGo);
+  const waveInfo = document.getElementById('waveInfo');
+  if (waveInfo){
+    if (S.dangerFinal) waveInfo.textContent = fmt(L().ui.dangerFinal, {n:S.dangerCount});
+    else if (S.dangerCount) waveInfo.textContent = fmt(L().ui.dangerCount, {n:S.dangerCount});
+    else if (S.phase === 'setup') waveInfo.textContent = fmt(L().ui.waveReady, {lv:S.level, n:Math.max(0,Math.ceil(S.autoT))});
+    else waveInfo.textContent = fmt(L().ui.waveRemain, {n:S.spawnQ.length + S.enemies.length});
+  }
+  const moreScore = document.getElementById('moreScoreNow');
+  if (moreScore) moreScore.textContent = S.score;
+  const towerMenu = document.getElementById('towerMenu');
+  const hudNow = performance.now();
+  if (selTower && towerMenu && !towerMenu.classList.contains('hidden') && hudNow - towerMenuRefreshAt >= 250){
+    towerMenuRefreshAt = hudNow;
+    refreshTowerMenu();
+  }
+  syncMuteButtons();
 }
 
 let bannerTimer = 0;
@@ -1411,6 +1811,24 @@ function banner(msg){
   bannerTimer = setTimeout(() => b.classList.add('hidden'), 2600);
 }
 
+function queueScoreGain(points){
+  if (!Number.isFinite(points) || points <= 0 || LAYOUT === 'desktop') return;
+  const toast = document.getElementById('scoreToast');
+  if (!toast) return;
+  scoreToastValue += Math.round(points);
+  toast.textContent = `⭐ +${scoreToastValue}`;
+  toast.classList.remove('hidden');
+  toast.setAttribute('aria-hidden', 'false');
+  if (scoreToastTimer) return; // 固定 800ms 聚合窗，不因連續得分無限延長
+  const gameGen = runGen;
+  scoreToastTimer = setTimeout(() => {
+    if (gameGen === runGen){
+      toast.classList.add('hidden'); toast.setAttribute('aria-hidden', 'true');
+    }
+    scoreToastValue = 0; scoreToastTimer = 0;
+  }, 800);
+}
+
 /* ── 點地建造面板（手機）：兩段式確認，確認前絕不扣款 ── */
 let bp = { open:false, gx:0, gy:0, ti:-1 };
 function bpItems(){
@@ -1419,7 +1837,10 @@ function bpItems(){
     .filter(o => o.unlocked);
 }
 function openBuildMenu(gx, gy){
-  bp = { open:true, gx, gy, ti:-1 };
+  const keepTower = bp.open ? bp.ti : -1;
+  cancelSupportAction(false);
+  closeTowerMenu();
+  bp = { open:true, gx, gy, ti:keepTower };
   renderBuildMenu();
   const el = document.getElementById('buildMenu');
   if (el) el.classList.remove('hidden');
@@ -1435,12 +1856,13 @@ function bpPick(i){
   if (!spec || S.level < (spec.unlock || 1) || S.coins < spec.cost) return;  // 買不起／未解鎖：僅灰顯
   bp.ti = (bp.ti === i) ? -1 : i;      // 再點一次取消預覽
   renderBuildMenu();
+  if (S) draw();
 }
 function bpConfirm(){
   if (!bp.open || bp.ti < 0) return;
   const spec = TOWERS[bp.ti];
   if (S.grid[bp.gy][bp.gx] !== 0 || S.coins < spec.cost || S.level < (spec.unlock || 1)){
-    closeBuildMenu(); return;
+    closeBuildMenu(); if (S) draw(); return;
   }
   S.coins -= spec.cost;                // ★ 只在確認時扣款
   S.towers.push({
@@ -1452,17 +1874,25 @@ function bpConfirm(){
   sfx(520,.06); sfx(760,.06);
   closeBuildMenu();
   updateHUD();
+  draw();
 }
 function renderBuildMenu(){
   const list = document.getElementById('bmList');
   const title = document.getElementById('bmTitle');
+  const preview = document.getElementById('bmPreview');
   const ok = document.getElementById('bmOk');
   if (title) title.textContent = L().ui.bpTitle;
+  if (preview){
+    preview.textContent = bp.ti >= 0
+      ? fmt(L().ui.bpPreview, {range:Math.round(TOWERS[bp.ti].range * S.mod.range), remain:S.coins - TOWERS[bp.ti].cost})
+      : L().ui.bpPickHint;
+  }
   if (list){
     list.innerHTML = bpItems().map(o => {
       const spec = TOWERS[o.i];
       const cls = 'bp-item pixel-btn' + (o.afford ? '' : ' poor') + (bp.ti === o.i ? ' sel' : '');
-      return `<button class="${cls}" data-bp="${o.i}">` +
+      const disabled = o.afford ? '' : ' disabled aria-disabled="true"';
+      return `<button class="${cls}" data-bp="${o.i}"${disabled}>` +
              `<span class="bg">${spec.glyph === '165' ? '165' : spec.glyph}</span>` +
              `<span class="bn">${L().towers[o.i]}</span>` +
              `<span class="bc">🪙${o.cost}</span></button>`;
@@ -1483,7 +1913,7 @@ function renderBuildMenu(){
   const ok = document.getElementById('bmOk');
   const no = document.getElementById('bmNo');
   if (ok && ok.addEventListener) ok.addEventListener('click', bpConfirm);
-  if (no && no.addEventListener) no.addEventListener('click', closeBuildMenu);
+  if (no && no.addEventListener) no.addEventListener('click', () => { closeBuildMenu(); if (S) draw(); });
 })();
 
 /* ── 畫布互動：單指=遊戲操作、雙指=縮放平移（硬區分） ── */
@@ -1543,8 +1973,10 @@ function queueTap(ix, iy){
 
 function handleTap(ix, iy){      // ix,iy＝內部像素
   if (!S || S.over || S.paused || S.phase === 'clearing') return;
+  finishRouteGuide();
   const [wx, wy] = internalToWorld(ix, iy);
-  if (selSup >= 0){ useSupport(selSup, wx, wy); return; }
+  if (selSup === 0 || selSup === 1){ setSupportTarget(selSup, wx, wy); return; }
+  if (selSup === 2) return;
   const gx = Math.floor(wx / CELL), gy = Math.floor(wy / CELL);
   if (gx < 0 || gy < 0 || gx >= COLS || gy >= ROWS){ closeBuildMenu(); return; }
   const hit = S.towers.find(t => t.gx === gx && t.gy === gy);
@@ -1579,6 +2011,8 @@ cv.addEventListener('pointerdown', ev => {
   ev.preventDefault();
   ptrs.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
   if (ptrs.size === 2 && LAYOUT !== 'desktop'){
+    finishRouteGuide();
+    cancelSupportAction(false);              // 雙指手勢也可安全取消支援瞄準／蓄力
     tapCand = null;                            // 進入手勢：取消 tap
     cancelPendingTap();
     const [a, b] = [...ptrs.values()];
@@ -1664,7 +2098,8 @@ cv.addEventListener('keydown', ev => {
   } else if (ev.key === 'Escape'){
     ev.preventDefault();
     cancelPendingTap();
-    selShop = -1; selSup = -1;
+    selShop = -1;
+    cancelSupportAction(false);
     closeTowerMenu(); closeBuildMenu();
     updateHUD(); draw(); announceKeyboardCell();
     return;
@@ -1677,15 +2112,38 @@ cv.addEventListener('keydown', ev => {
 });
 
 /* ── 塔選單（升級／拆除） ─────────────────────────── */
-function openTowerMenu(t){
-  selTower = t;
+function cancelSellConfirm(){
+  if (sellConfirmTimer) clearTimeout(sellConfirmTimer);
+  sellConfirmTimer = 0; sellConfirmTower = null; sellConfirmUntil = 0;
+  const menu = document.getElementById('towerMenu');
+  if (menu) menu.classList.remove('sell-armed');
+}
+function refreshTowerMenu(){
+  const t = selTower;
+  if (!t || !S || !S.towers.includes(t)) return;
   const m = $('towerMenu');
   const spec = TOWERS[t.ti];
+  const now = performance.now();
+  if (sellConfirmTower === t && now >= sellConfirmUntil) cancelSellConfirm();
+  const sellArmed = sellConfirmTower === t && now < sellConfirmUntil;
   $('tmName').textContent = `${L().towers[t.ti]} Lv.${t.lv}`;
   const upCost = Math.round(spec.cost * .8 * t.lv);
-  $('tmUpCost').textContent = t.lv >= MAX_TLV ? 'MAX' : upCost;
+  $('tmUpLbl').textContent = L().ui.upLbl;
+  $('tmUpCost').textContent = t.lv >= MAX_TLV ? 'MAX' : `${upCost} / ${S.coins}`;
   $('tmUp').disabled = t.lv >= MAX_TLV || S.coins < upCost;
-  $('tmSellGain').textContent = Math.round(t.invested * .7);
+  const gain = Math.round(t.invested * .7);
+  const loss = t.invested - gain;
+  $('tmSellLbl').textContent = sellArmed ? L().ui.sellConfirm : L().ui.sellLbl;
+  $('tmSellGain').textContent = `${gain} (-${loss})`;
+  $('tmSell').setAttribute('title', fmt(L().ui.sellBreakdown, {gain, loss}));
+  $('tmSell').setAttribute('aria-label', (sellArmed ? L().ui.sellConfirm : L().ui.sellLbl) + '。' + fmt(L().ui.sellBreakdown, {gain, loss}));
+  m.classList.toggle('sell-armed', sellArmed);
+}
+function openTowerMenu(t){
+  if (selTower && selTower !== t) cancelSellConfirm();
+  selTower = t;
+  const m = $('towerMenu');
+  refreshTowerMenu();
   m.classList.remove('hidden');
   const r = cv.getBoundingClientRect();
   const st = $('stage').getBoundingClientRect();
@@ -1696,31 +2154,51 @@ function openTowerMenu(t){
   m.style.left = Math.min(mx, st.width - 150) + 'px';
   m.style.top  = Math.max(0, my) + 'px';
 }
-function closeTowerMenu(){ selTower = null; $('towerMenu').classList.add('hidden'); }
+function closeTowerMenu(){ cancelSellConfirm(); selTower = null; $('towerMenu').classList.add('hidden'); }
 $('tmUp').addEventListener('click', () => {
   const t = selTower;
   if (!t || !S.towers.includes(t)){ closeTowerMenu(); return; }  // 幽靈塔防護
+  const now = performance.now();
+  if (now < upgradeLockedUntil) return;
+  upgradeLockedUntil = now + 350;
+  cancelSellConfirm();
   const spec = TOWERS[t.ti];
   const upCost = Math.round(spec.cost * .8 * t.lv);
   if (t.lv >= MAX_TLV || S.coins < upCost) return;
   S.coins -= upCost; t.invested += upCost;
   t.lv++; t.dmg = Math.round(t.dmg * UP_MULT.dmg); t.range = Math.round(t.range * UP_MULT.range);
   sfx(660,.08); sfx(990,.1);
-  openTowerMenu(t); updateHUD();
+  openTowerMenu(t); updateHUD(); draw();
 });
 $('tmSell').addEventListener('click', () => {
   const t = selTower;
   if (!t || !S.towers.includes(t)){ closeTowerMenu(); return; }  // 幽靈塔防護
+  const now = performance.now();
+  if (sellConfirmTower !== t || now >= sellConfirmUntil){
+    cancelSellConfirm();
+    sellConfirmTower = t;
+    sellConfirmUntil = now + 3000;
+    const state = S, gen = runGen;
+    sellConfirmTimer = setTimeout(() => {
+      if (gen !== runGen || state !== S || sellConfirmTower !== t) return;
+      cancelSellConfirm();
+      if (selTower === t && S.towers.includes(t)) openTowerMenu(t);
+      if (S) draw();
+    }, 3000);
+    openTowerMenu(t); draw();
+    return;
+  }
   S.coins += Math.round(t.invested * .7);
   S.grid[t.gy][t.gx] = 0;
   S.towers = S.towers.filter(o => o !== t);
-  closeTowerMenu(); sfx(300,.1); updateHUD();
+  closeTowerMenu(); sfx(300,.1); updateHUD(); draw();
 });
 
 /* ── 商店與控制 ───────────────────────────────────── */
 document.querySelectorAll('.tower-btn').forEach((b,i) => {
   b.addEventListener('click', () => {
     if (!S || S.over || S.phase === 'clearing') return;
+    finishRouteGuide();
     selShop = (selShop === i) ? -1 : i;
     closeTowerMenu(); updateHUD();
     focusBoard();
@@ -1728,15 +2206,22 @@ document.querySelectorAll('.tower-btn').forEach((b,i) => {
 });
 document.querySelectorAll('.sup-btn').forEach((b,i) => {
   b.addEventListener('click', () => {
-    if (!S || S.over || S.phase === 'clearing' || S.level < SUPPORT[i].unlock || S.supCd[i] > 0) return;
-    selSup = (selSup === i) ? -1 : i;
-    selShop = -1; closeTowerMenu();
-    if (selSup >= 0) banner(L().support.aim);
-    updateHUD();
+    if (!S || S.over || S.phase === 'clearing') return;
+    finishRouteGuide();
+    if (i === 2 && lightCharge.active){ cancelSupportAction(); return; }
+    if (S.level < SUPPORT[i].unlock || S.supCd[i] > 0 || S.enemies.every(e => e.dead)) return;
+    if (i === 2) startLightCharge();
+    else if (selSup === i) cancelSupportAction();
+    else beginSupportAim(i);
     focusBoard();
   });
 });
+const supportOk = document.getElementById('scOk');
+const supportNo = document.getElementById('scNo');
+if (supportOk) supportOk.addEventListener('click', confirmSupportTarget);
+if (supportNo) supportNo.addEventListener('click', () => cancelSupportAction());
 $('btnNextWave').addEventListener('click', () => {
+  finishRouteGuide();
   startWave();
 });
 $('btnSpeed').addEventListener('click', () => {
@@ -1749,11 +2234,95 @@ $('btnPause').addEventListener('click', () => {
   S.manualPaused = !S.manualPaused;
   syncPauseState();
 });
-$('btnMute').addEventListener('click', () => {
+function syncMuteButtons(){
+  const hudMute = document.getElementById('btnMute');
+  const moreMute = document.getElementById('btnMuteMore');
+  const more = document.getElementById('btnMore');
+  const controls = L().ui.controls;
+  if (hudMute){
+    hudMute.textContent = muted ? '♪̸' : '♪';
+    hudMute.style.opacity = muted ? .5 : 1;
+  }
+  if (moreMute){
+    moreMute.textContent = muted ? `🔇 ${controls.unmute}` : `♪ ${controls.mute}`;
+    moreMute.setAttribute('aria-pressed', String(muted));
+  }
+  if (more) more.textContent = muted ? '⋯🔇' : '⋯';
+}
+function toggleMute(){
   muted = !muted;
-  $('btnMute').textContent = muted ? '♪̸' : '♪';
-  $('btnMute').style.opacity = muted ? .5 : 1;
+  syncMuteButtons();
   applyControlA11y();
+}
+$('btnMute').addEventListener('click', toggleMute);
+const btnMuteMore = document.getElementById('btnMuteMore');
+if (btnMuteMore) btnMuteMore.addEventListener('click', toggleMute);
+
+function updateMorePanel(){
+  if (!S) return;
+  const score = document.getElementById('moreScoreNow');
+  const best = document.getElementById('moreBestNow');
+  if (score) score.textContent = S.score;
+  if (best){
+    const rows = loadBoard();
+    best.textContent = rows.length ? Math.max(...rows.map(r => r.s)) : 0;
+  }
+  const quality = document.getElementById('qualityMode');
+  const motion = document.getElementById('reduceMotion');
+  const flash = document.getElementById('reduceFlash');
+  if (quality) quality.value = uxPrefs.quality;
+  if (motion) motion.checked = uxPrefs.reduceMotion;
+  if (flash) flash.checked = uxPrefs.reduceFlash;
+  syncMuteButtons(); applyQualityClass();
+}
+function openMore(){
+  if (!S || S.over || S.phase === 'clearing') return;
+  morePauseWasManual = !!S.manualPaused;
+  S.manualPaused = true;
+  syncPauseState();
+  updateMorePanel();
+  show('moreScreen');
+}
+function closeMore(){
+  const screen = document.getElementById('moreScreen');
+  if (!screen || !screen.classList.contains('show')) return;
+  hide('moreScreen');
+  if (S && !S.over){
+    S.manualPaused = morePauseWasManual;
+    syncPauseState();
+  }
+}
+const btnMore = document.getElementById('btnMore');
+const btnMoreClose = document.getElementById('btnMoreClose');
+if (btnMore) btnMore.addEventListener('click', openMore);
+if (btnMoreClose) btnMoreClose.addEventListener('click', closeMore);
+const qualityMode = document.getElementById('qualityMode');
+if (qualityMode) qualityMode.addEventListener('change', ev => {
+  if (!['auto','full','compact'].includes(ev.target.value)) return;
+  uxPrefs.quality = ev.target.value;
+  if (uxPrefs.quality === 'auto') setActualQuality(uxPrefs.lastStable, performance.now(), false);
+  else setActualQuality(uxPrefs.quality, performance.now(), false);
+  saveUxPrefs(); applyQualityClass();
+  if (S) draw();
+});
+const reduceMotion = document.getElementById('reduceMotion');
+if (reduceMotion) reduceMotion.addEventListener('change', ev => {
+  uxPrefs.reduceMotion = !!ev.target.checked; saveUxPrefs(); applyQualityClass();
+  if (S) draw();
+});
+const reduceFlash = document.getElementById('reduceFlash');
+if (reduceFlash) reduceFlash.addEventListener('change', ev => {
+  uxPrefs.reduceFlash = !!ev.target.checked; saveUxPrefs();
+});
+
+const dangerEdgeButton = document.getElementById('dangerEdge');
+if (dangerEdgeButton) dangerEdgeButton.addEventListener('click', () => {
+  if (!S || !S.dangerEdgeTarget || S.dangerEdgeTarget.dead) return;
+  const target = S.dangerEdgeTarget;
+  view.ox = W/2 - target.x * view.scale;
+  view.oy = H/2 - target.y * view.scale;
+  clampView(); draw();
+  placeDangerEdge(null);
 });
 
 /* ── 排行榜（localStorage 匿名） ──────────────────── */
@@ -1850,7 +2419,8 @@ function relayout(){
     }
     buildGround();
     cancelPendingTap();
-    closeTowerMenu(); closeBuildMenu(); resetView(); selShop = -1; selSup = -1;
+    closeTowerMenu(); closeBuildMenu(); resetView(); selShop = -1;
+    if (typeof cancelSupportAction === 'function') cancelSupportAction(false);
     // 暫停 0.6 秒讓玩家重新定位
     S.layoutPaused = true;
     const state = S;
@@ -1904,6 +2474,14 @@ function applyI18n(){
   set('btnRetry', u.btnRetry);
   const sv = $('btnSaveScore'); if (sv && !sv.disabled) sv.textContent = u.btnSave;
   set('tmUpLbl', u.upLbl); set('tmSellLbl', u.sellLbl);
+  set('moreTitle', u.moreTitle); set('morePauseNote', u.morePauseNote);
+  set('moreScoreLbl', u.moreScore); set('moreBestLbl', u.moreBest);
+  set('qualityLbl', u.qualityLbl); set('reduceMotionLbl', u.reduceMotionLbl);
+  set('reduceFlashLbl', u.reduceFlashLbl); set('btnMoreClose', u.moreClose);
+  const qualitySelect = document.getElementById('qualityMode');
+  if (qualitySelect){
+    Array.from(qualitySelect.options).forEach(opt => { if (u.qualityModes[opt.value]) opt.textContent = u.qualityModes[opt.value]; });
+  }
   set('pwaMsg', u.pwaMsg); set('pwaYes', u.pwaYes); set('pwaNo', u.pwaNo); set('pwaNever', u.pwaNever);
   document.querySelectorAll('.tower-btn').forEach((b,i) => {
     const tn = b.querySelector && b.querySelector('.tn');
@@ -1923,6 +2501,10 @@ function applyI18n(){
       b.setAttribute('aria-pressed', String(selected));
     }
   });
+  applyQualityClass();
+  syncMuteButtons();
+  if (supportAim) renderSupportConfirm();
+  if (selTower) openTowerMenu(selTower);
   if (S) updateHUD();
   if (S && document.activeElement === board) announceKeyboardCell();
 }
@@ -1958,19 +2540,32 @@ function startGame(){
   runGen++;                                     // 讓上一局的 setTimeout 全部失效
   layoutPauseGen++;
   cancelPendingTap();
+  cancelSupportAction(false);
+  cancelSellConfirm();
+  if (scoreToastTimer) clearTimeout(scoreToastTimer);
+  scoreToastTimer = 0; scoreToastValue = 0;
+  hide('moreScreen');
   S = newState();
+  actualQuality = uxPrefs.quality === 'auto' ? uxPrefs.lastStable : uxPrefs.quality;
+  perfState = { fps:60, below45At:0, below30At:0, above55At:0, lastChange:-Infinity, downgradedWave:0 };
   quizUsed = [];
   kbFocus = { gx:0, gy:0 };
-  selShop = -1; selTower = null; speedIdx = 0; selSup = -1; hitStop = 0;
+  selShop = -1; selTower = null; speedIdx = 0; selSup = -1; supportAim = null; hitStop = 0;
   closeTowerMenu();
   closeBuildMenu();
   resetView();
   hide('quizScreen');
   const fx = document.getElementById('stageClear');
   if (fx) fx.classList.add('hidden');
+  const scoreToast = document.getElementById('scoreToast');
+  if (scoreToast) scoreToast.classList.add('hidden');
+  const dangerEdge = document.getElementById('dangerEdge');
+  if (dangerEdge) dangerEdge.classList.add('hidden');
+  if (document.body) document.body.classList.remove('danger-active');
   $('btnSpeed').textContent = '▶×1';
   $('btnPause').textContent = '❚❚';
   applyControlA11y();
+  applyQualityClass();
   genLevel(1);
   S.autoT = 15;                       // 第 1 關給新手多一點佈陣時間
   banner(L().ui.startBanner);

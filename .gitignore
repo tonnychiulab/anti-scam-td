@@ -1,0 +1,2 @@
+# Local release and safety backups must never be committed.
+*.zip
