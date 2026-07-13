@@ -39,7 +39,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.0.2</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.1.0</span></p>
   </div>
 </div>
 
@@ -64,15 +64,21 @@
 <!-- ══════════ 主遊戲 ══════════ -->
 <div id="gameWrap" class="hidden">
   <header id="hud">
-    <div class="hud-item" id="hudLevel" title="關卡">🚩 <span id="lvNow">1</span>/87</div>
-    <div class="hud-item" id="hudHP" title="民眾信任（血量）">❤️ <span id="hpNow">10</span></div>
-    <div class="hud-item" id="hudLives" title="生命"><span id="livesNow">💛💛💛</span></div>
-    <div class="hud-item" id="hudCoin" title="查證點數">🪙 <span id="coinNow">120</span></div>
-    <div class="hud-item" id="hudScore" title="分數">⭐ <span id="scoreNow">0</span></div>
-    <div class="hud-btns">
-      <button id="btnSpeed" class="pixel-btn mini" title="遊戲速度">▶×1</button>
-      <button id="btnPause" class="pixel-btn mini" title="暫停">❚❚</button>
-      <button id="btnMute" class="pixel-btn mini" title="音效">♪</button>
+    <div class="hud-primary">
+      <div class="hud-item" id="hudLevel" title="關卡">🚩 <span id="lvNow">1</span>/87</div>
+      <div class="hud-item" id="hudHP" title="民眾信任（血量）">❤️ <span id="hpNow">10</span></div>
+      <div class="hud-item" id="hudLives" title="生命"><span id="livesNow">💛💛💛</span></div>
+      <div class="hud-item" id="hudCoin" title="查證點數">🪙 <span id="coinNow">120</span></div>
+      <div class="hud-item" id="hudScore" title="分數">⭐ <span id="scoreNow">0</span></div>
+    </div>
+    <div class="hud-secondary">
+      <div id="waveInfo" class="wave-info" aria-live="off">準備第 1 波</div>
+      <div class="hud-btns">
+        <button id="btnSpeed" class="pixel-btn mini" title="遊戲速度">▶×1</button>
+        <button id="btnPause" class="pixel-btn mini" title="暫停">❚❚</button>
+        <button id="btnMute" class="pixel-btn mini desktop-mute" title="音效">♪</button>
+        <button id="btnMore" class="pixel-btn mini mobile-more" title="更多資訊與設定" aria-haspopup="dialog">⋯</button>
+      </div>
     </div>
   </header>
 
@@ -93,7 +99,10 @@
     <p id="canvasHelp" class="sr-only">手機直接點草地選塔；電腦先點下方武器，再點草地放置。鍵盤可用方向鍵移動，Enter 或空白鍵操作格子，Escape 取消。點已蓋的塔可升級或拆除。</p>
     <canvas id="cv" width="960" height="576" tabindex="0" role="application" aria-label="防詐迷宮遊戲棋盤" aria-describedby="canvasHelp">您的瀏覽器不支援互動遊戲畫布。玩法：手機點草地選塔；電腦先選下方武器，再點草地建造；鍵盤用方向鍵移動，Enter 或空白鍵操作。</canvas>
     <div id="gameStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="dangerAlert" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
     <div id="waveBanner" class="wave-banner hidden"></div>
+    <div id="scoreToast" class="score-toast hidden" aria-hidden="true">⭐ +0</div>
+    <button id="dangerEdge" class="danger-edge hidden" type="button" aria-label="查看接近出口的敵人">⚠ ×0</button>
     <!-- 塔操作面板（在 #stage 內：position 計算才正確） -->
     <div id="towerMenu" class="tower-menu hidden" role="group" aria-labelledby="tmName">
       <div id="tmName" class="tm-name"></div>
@@ -105,10 +114,22 @@
   <!-- 點地建造面板（手機 bottom-sheet；桌機不啟用） -->
   <div id="buildMenu" class="build-menu hidden" role="dialog" aria-labelledby="bmTitle">
     <div class="bm-title" id="bmTitle">🔨 這格要蓋哪座防詐塔？</div>
+    <div id="bmPreview" class="bm-preview"></div>
     <div class="bm-list" id="bmList"></div>
     <div class="bm-actions">
       <button id="bmOk" class="pixel-btn primary" disabled>✓ 建造</button>
       <button id="bmNo" class="pixel-btn danger">✗</button>
+    </div>
+  </div>
+
+  <div id="supportConfirm" class="support-confirm hidden" role="group" aria-labelledby="scTitle">
+    <div>
+      <strong id="scTitle">支援位置預覽</strong>
+      <span id="scSummary"></span>
+    </div>
+    <div class="support-actions">
+      <button id="scOk" class="pixel-btn primary">✓ 施放</button>
+      <button id="scNo" class="pixel-btn danger">✗</button>
     </div>
   </div>
 
@@ -170,6 +191,31 @@
 
 </div>
 
+<!-- 手機更多資訊：開啟期間暫停遊戲，關閉後恢復原本暫停狀態。 -->
+<div id="moreScreen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="moreTitle" aria-describedby="morePauseNote">
+  <div class="panel more-panel" tabindex="-1">
+    <h2 id="moreTitle">更多資訊與設定</h2>
+    <p id="morePauseNote" class="more-note">開啟此面板時，遊戲會暫時暫停。</p>
+    <div class="more-score">
+      <span id="moreScoreLbl">總分</span> <b id="moreScoreNow">0</b>
+      <span id="moreBestLbl">本機最佳</span> <b id="moreBestNow">0</b>
+    </div>
+    <button id="btnMuteMore" class="pixel-btn more-wide" aria-pressed="false">♪ 音效</button>
+    <label class="more-field" for="qualityMode">
+      <span id="qualityLbl">視覺效果品質</span>
+      <select id="qualityMode">
+        <option value="auto">自動</option>
+        <option value="full">完整</option>
+        <option value="compact">精簡</option>
+      </select>
+    </label>
+    <label class="more-check"><input id="reduceMotion" type="checkbox"> <span id="reduceMotionLbl">減少動態效果</span></label>
+    <label class="more-check"><input id="reduceFlash" type="checkbox"> <span id="reduceFlashLbl">減少閃光</span></label>
+    <div id="qualityStatus" class="quality-status" role="status" aria-live="polite"></div>
+    <button id="btnMoreClose" class="pixel-btn primary more-wide">返回遊戲</button>
+  </div>
+</div>
+
 <!-- ══════════ 避開詐騙（續命）彈窗 ══════════ -->
 <div id="quizScreen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="quizTitle" aria-describedby="quizMsg quizResult">
   <div class="panel quiz-panel" tabindex="-1">
@@ -196,6 +242,7 @@
     </svg>
     <div class="clear-word en" id="clearWordEn">STAGE CLEAR!</div>
     <div class="clear-word zh" id="clearWordZh">詐騙集團全滅！</div>
+    <div class="clear-score" id="clearScore">本關 +0　總分 0</div>
     <div class="clear-tip" id="clearTip"></div>
   </div>
 </div>

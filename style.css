@@ -111,12 +111,19 @@ input:focus-visible,
   width:100%; max-width:1560px; padding:8px 12px;
   font-size:15px;
 }
+.hud-primary,.hud-secondary{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; justify-content:center;}
+.hud-secondary{min-width:min(420px,100%);}
+.wave-info{
+  min-width:9em; color:#dbe9f7; font-family:var(--font-zh); text-align:center;
+  white-space:nowrap;
+}
 .hud-item{
   background:var(--bg2); border:2px solid #000; padding:6px 10px;
   box-shadow:2px 2px 0 #000; white-space:nowrap;
 }
 #hudHP{color:#ff9db1;} #hudCoin{color:var(--gold);} #hudScore{color:#9be79b;}
 .hud-btns{display:flex; gap:6px;}
+.mobile-more{display:none;}
 
 /* ── 特種部隊支援列 ───────────────────── */
 #supportBar{
@@ -161,6 +168,18 @@ input:focus-visible,
   animation:bannerPop .4s steps(4);
 }
 @keyframes bannerPop{from{transform:translateX(-50%) scale(.3);} to{transform:translateX(-50%) scale(1);}}
+.score-toast{
+  position:absolute; top:62px; left:50%; transform:translateX(-50%); z-index:7;
+  color:#1b1b2f; background:var(--gold); border:2px solid #000; box-shadow:3px 3px 0 #000;
+  padding:6px 12px; font-size:16px; pointer-events:none;
+}
+.danger-edge{
+  position:absolute; z-index:12; min-width:52px; min-height:44px; padding:7px 9px;
+  color:#1b1b2f; background:#ff9db1; border:3px solid #fff; box-shadow:4px 4px 0 #000;
+  font:700 14px var(--font-en),var(--font-zh),sans-serif; cursor:pointer;
+  animation:dangerPulse .7s steps(2) infinite;
+}
+@keyframes dangerPulse{50%{filter:brightness(1.35); transform:scale(1.05);}}
 
 /* ── 商店列 ───────────────────────────── */
 #shop{
@@ -180,6 +199,7 @@ input:focus-visible,
   padding:8px; display:flex; flex-direction:column; gap:6px;
 }
 .tm-name{font-size:15px; color:var(--gold); text-align:center;}
+.tower-menu.sell-armed{border-color:var(--red);}
 
 /* ── 續命測驗 ─────────────────────────── */
 .quiz-panel h2{color:var(--red);}
@@ -220,6 +240,11 @@ input:focus-visible,
   background:var(--ink); border:3px solid #000; box-shadow:4px 4px 0 #000;
   display:inline-block; padding:8px 18px; margin-top:16px; max-width:82vw;
   animation:tipIn .4s .7s steps(4) backwards;
+}
+.clear-score{
+  display:inline-block; margin-top:10px; padding:6px 12px;
+  background:#101020; border:2px solid #fff; color:var(--gold);
+  font-family:var(--font-zh); font-size:clamp(14px,2.2vw,19px); box-shadow:3px 3px 0 #000;
 }
 @keyframes tipIn{from{transform:translateY(30px); opacity:0;} to{transform:translateY(0); opacity:1;}}
 @keyframes heroPunch{
@@ -294,11 +319,24 @@ input:focus-visible,
 
 /* ── 觸控共通（mland＋mport）── */
 body[data-layout="mland"] #hud, body[data-layout="mport"] #hud{
-  font-size:12px; gap:5px 7px; padding:6px 8px;
+  display:block; font-size:12px; padding:6px 8px;
 }
-body[data-layout="mland"] .hud-item, body[data-layout="mport"] .hud-item{padding:4px 7px;}
+body[data-layout="mland"] .hud-primary, body[data-layout="mport"] .hud-primary,
+body[data-layout="mland"] .hud-secondary, body[data-layout="mport"] .hud-secondary{
+  display:flex; flex-wrap:nowrap; width:100%; gap:5px; justify-content:space-between;
+}
+body[data-layout="mland"] .hud-primary, body[data-layout="mport"] .hud-primary{margin-bottom:5px;}
+body[data-layout="mland"] .hud-item, body[data-layout="mport"] .hud-item{
+  flex:1 1 auto; padding:4px 5px; min-height:32px; display:flex; align-items:center; justify-content:center;
+}
+body[data-layout="mland"] #hudScore, body[data-layout="mport"] #hudScore{display:none;}
+body[data-layout="mland"] .wave-info, body[data-layout="mport"] .wave-info{
+  min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; text-align:left;
+}
+body[data-layout="mland"] .desktop-mute, body[data-layout="mport"] .desktop-mute{display:none;}
+body[data-layout="mland"] .mobile-more, body[data-layout="mport"] .mobile-more{display:inline-flex;}
 body[data-layout="mland"] .pixel-btn.mini, body[data-layout="mport"] .pixel-btn.mini{
-  font-size:12px; padding:5px 8px;
+  min-width:44px; min-height:44px; font-size:12px; padding:5px 8px;
 }
 /* 商店：單排橫向滑動 dock，出怪鈕吸附最左 */
 body[data-layout="mland"] #shop, body[data-layout="mport"] #shop{
@@ -348,8 +386,8 @@ body[data-layout="mland"] #supportBar{
 }
 body[data-layout="mland"] #cv{
   width:auto; max-width:100%;
-  max-height:calc(100dvh - 150px);
-  min-height:220px;
+  max-height:calc(100dvh - 160px);
+  min-height:180px;
 }
 
 
@@ -375,6 +413,7 @@ body[data-layout="mland"] .wave-btn, body[data-layout="mport"] .wave-btn{
   font-family:var(--font-zh); font-size:15px; color:var(--gold);
   text-align:center; margin-bottom:8px;
 }
+.bm-preview{min-height:1.4em; margin:-2px 0 7px; color:#dbe9f7; text-align:center; font-family:var(--font-zh); font-size:13px;}
 .bm-list{
   display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;
   -webkit-overflow-scrolling:touch; scrollbar-width:none;
@@ -393,6 +432,53 @@ body[data-layout="mland"] .wave-btn, body[data-layout="mport"] .wave-btn{
 .bm-actions .pixel-btn{font-size:17px; min-width:150px;}
 .bm-actions .pixel-btn:disabled{background:#3a3a52; color:var(--dim); cursor:default;}
 #bmNo{min-width:64px;}
+
+/* 支援技能位置確認：與建造面板互斥，冷卻只在確認施放後開始。 */
+.support-confirm{
+  position:fixed; left:50%; bottom:calc(76px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+  z-index:46; width:min(560px,calc(100% - 16px)); padding:10px;
+  display:flex; gap:10px; align-items:center; justify-content:space-between;
+  background:var(--bg2); border:3px solid var(--gold); box-shadow:5px 5px 0 #000;
+  font-family:var(--font-zh); line-height:1.45;
+}
+.support-confirm strong,.support-confirm span{display:block;}
+.support-confirm span{font-size:13px; color:#dbe9f7;}
+.support-actions{display:flex; gap:8px; flex:0 0 auto;}
+.support-actions .pixel-btn{min-width:58px; min-height:44px; padding:7px 10px; font-size:14px;}
+
+/* 更多資訊與本機視覺偏好 */
+.more-panel{text-align:left; max-width:480px;}
+.more-panel h2{text-align:center;}
+.more-note{color:var(--dim); font-family:var(--font-zh); text-align:center; line-height:1.5; margin-bottom:14px;}
+.more-score{
+  display:grid; grid-template-columns:1fr auto; gap:8px 18px; padding:12px;
+  background:#101020; border:2px solid #000; margin-bottom:12px; font-family:var(--font-zh);
+}
+.more-score b{color:var(--gold); text-align:right;}
+.more-wide{width:100%; min-height:48px; margin:6px 0;}
+.more-field,.more-check{display:flex; align-items:center; justify-content:space-between; gap:12px; margin:12px 0; font-family:var(--font-zh);}
+.more-field select{
+  min-height:44px; min-width:120px; padding:7px 10px; color:var(--ink); background:#101020;
+  border:2px solid var(--ink); font:16px var(--font-zh);
+}
+.more-check{justify-content:flex-start; min-height:44px;}
+.more-check input{width:24px; height:24px; accent-color:var(--gold);}
+.quality-status{min-height:1.5em; color:#9be79b; font-family:var(--font-zh); font-size:13px; text-align:center;}
+
+body[data-layout="mland"] .tower-menu, body[data-layout="mport"] .tower-menu{
+  position:fixed; left:0 !important; right:0; top:auto !important; bottom:0;
+  width:100%; padding:12px 10px calc(12px + env(safe-area-inset-bottom));
+  flex-direction:row; flex-wrap:wrap; justify-content:center; align-items:center;
+  border-width:3px 0 0; z-index:47;
+}
+body[data-layout="mland"] .tower-menu .tm-name, body[data-layout="mport"] .tower-menu .tm-name{width:100%;}
+body[data-layout="mland"] .tower-menu .pixel-btn, body[data-layout="mport"] .tower-menu .pixel-btn{min-height:44px;}
+
+body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after{
+  animation-duration:.001ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important;
+}
+body.quality-compact .sup-btn.ready{animation:none;}
+body.quality-minimum .sup-btn.ready, body.quality-minimum .danger-edge{animation:none;}
 
 
 /* ═══ v2.0.0 PWA 安裝提示列 ═══ */

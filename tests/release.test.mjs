@@ -913,3 +913,144 @@ test('primary and danger buttons use WCAG-AA contrast text', () => {
   assert.ok(contrast('1b1b2f', '26a269') >= 4.5, 'primary 按鈕對比不足');
   assert.ok(contrast('1b1b2f', 'ef476f') >= 4.5, 'danger 按鈕對比不足');
 });
+
+test('v2.1 route guidance uses the agreed durations and remains skippable', () => {
+  let now = 1_000;
+  const context = { S:{ level:1 }, performance:{ now:() => now } };
+  vm.runInNewContext([
+    extractFunction(gameSource, 'startRouteGuide'),
+    extractFunction(gameSource, 'finishRouteGuide'),
+    'globalThis.__api__ = {startRouteGuide, finishRouteGuide};',
+  ].join('\n'), context, { filename:'route-guide.test.js', timeout:1_000 });
+  context.__api__.startRouteGuide();
+  assert.equal(context.S.routeGuide.duration, 1000, '第 1–3 關導引應為 1000ms');
+  assert.equal(context.__api__.finishRouteGuide(), true, '玩家操作應能立即完成導引');
+  assert.equal(context.S.routeGuide.active, false);
+  context.S.level = 4; now = 2_000;
+  context.__api__.startRouteGuide();
+  assert.equal(context.S.routeGuide.duration, 700, '第 4 關起導引應為 700ms');
+  const handleTapSource = extractFunction(gameSource, 'handleTap');
+  assert.ok(handleTapSource.indexOf('finishRouteGuide()') < handleTapSource.indexOf('internalToWorld'), '導引完成不可吞掉原本棋盤操作');
+});
+
+test('v2.1 danger warning has 80/92 percent thresholds, 75 percent hysteresis, and one alert per wave', () => {
+  let notices = 0, vibrations = 0;
+  const classList = { add(){}, remove(){}, toggle(){} };
+  const elements = {
+    waveBanner:{ textContent:'', classList }, dangerAlert:{ textContent:'' },
+    dangerEdge:{ textContent:'', classList },
+  };
+  const enemy = { seg:81, prog:0, dead:false, dangerWarned:false, dangerActive:false, x:0, y:0 };
+  const state = {
+    path:Array.from({length:101}), enemies:[enemy], dangerWaveAlerted:false,
+    dangerHapticDone:false, dangerFinal:false, dangerCount:0, dangerLastDom:0,
+    dangerClearSince:0, dangerEdgeTarget:null,
+  };
+  const context = {
+    S:state,
+    banner(){ notices++; elements.waveBanner.textContent = 'danger'; },
+    L:() => ({ui:{dangerAlert:'danger'}}),
+    navigator:{ vibrate(){ vibrations++; } },
+    document:{ visibilityState:'visible', body:{classList}, getElementById:id => elements[id] || null },
+    view:{scale:1,ox:0,oy:0}, W:960, H:576,
+    placeDangerEdge(){},
+  };
+  vm.runInNewContext([
+    extractFunction(gameSource, 'enemyPathProgress'),
+    extractFunction(gameSource, 'updateDangerState'),
+    'globalThis.__update__ = updateDangerState;',
+  ].join('\n'), context, { filename:'danger-warning.test.js', timeout:1_000 });
+  context.__update__(1_000);
+  assert.equal(enemy.dangerActive, true);
+  assert.equal(notices, 1); assert.equal(vibrations, 1);
+  context.__update__(1_300);
+  assert.equal(notices, 1, '同一波不可重複大型警告或震動');
+  enemy.seg = 74; context.__update__(1_600);
+  assert.equal(enemy.dangerActive, false, '跌破 75% 才解除當前危險狀態');
+  enemy.seg = 81; context.__update__(1_900);
+  assert.equal(enemy.dangerActive, true);
+  assert.equal(notices, 1, '擊退後再次越過 80% 不可重複警告');
+  enemy.seg = 92; context.__update__(2_200);
+  assert.equal(state.dangerFinal, true, '92% 起應進入最終防線狀態');
+});
+
+test('v2.1 support previews never start cooldown before a valid confirmation', () => {
+  const beginSource = extractFunction(gameSource, 'beginSupportAim');
+  const targetSource = extractFunction(gameSource, 'setSupportTarget');
+  const castSource = extractFunction(gameSource, 'useSupport');
+  assert.doesNotMatch(beginSource, /supCd\s*\[/, '進入瞄準不可開始冷卻');
+  assert.doesNotMatch(targetSource, /supCd\s*\[/, '選擇位置不可開始冷卻');
+  assert.match(castSource, /S\.supCd\[i\]\s*=\s*sp\.cd/, '只有實際施放才可開始冷卻');
+  assert.match(extractFunction(gameSource, 'startLightCharge'), /500\s*\)/, '手電筒蓄力必須是 500ms');
+
+  let casts = 0;
+  const context = {
+    S:{}, selSup:0, supportAim:{i:0,x:20,y:20},
+    counts:{hits:0,globalHits:3},
+    supportCounts(){ return context.counts; },
+    useSupport(){ casts++; },
+  };
+  vm.runInNewContext(`${extractFunction(gameSource, 'confirmSupportTarget')}\nglobalThis.__confirm__=confirmSupportTarget;`, context);
+  assert.equal(context.__confirm__(), false, '破門錘零命中不可確認');
+  context.counts = {hits:2,globalHits:3};
+  assert.equal(context.__confirm__(), true);
+  assert.equal(casts, 1);
+  context.selSup = 1; context.supportAim = {i:1,x:20,y:20}; context.counts = {hits:3,globalHits:3,localHits:0};
+  assert.equal(context.__confirm__(), true, '震撼彈即使爆心零命中，只要場上有敵人仍可確認');
+});
+
+test('v2.1 automatic visual quality obeys sustained thresholds and one downgrade per wave', () => {
+  const state = { level:1, phase:'wave', waveActive:true, paused:false, over:false, layoutPaused:false };
+  const context = {
+    S:state, uxPrefs:{quality:'auto'}, actualQuality:'full',
+    perfState:{fps:60,below45At:0,below30At:0,above55At:0,lastChange:-Infinity,downgradedWave:0},
+    performanceSampleAllowed:() => true,
+  };
+  context.setActualQuality = (mode, ts) => {
+    context.actualQuality = mode;
+    context.perfState.lastChange = ts;
+    return true;
+  };
+  vm.runInNewContext(`${extractFunction(gameSource, 'sampleAutoQuality')}\nglobalThis.__sample__=sampleAutoQuality;`, context);
+  let ts = 0;
+  for (let i=0;i<150;i++){ ts += 34; context.__sample__(ts,34); }
+  assert.equal(context.actualQuality, 'compact', '低於 45fps 約 3 秒後應降為精簡');
+  for (let i=0;i<500;i++){ ts += 40; context.__sample__(ts,40); }
+  assert.equal(context.actualQuality, 'compact', '同一波最多只能降級一次');
+  state.level = 2; ts += 16000;
+  for (let i=0;i<80;i++){ ts += 40; context.__sample__(ts,40); }
+  assert.equal(context.actualQuality, 'minimum', '下一波低於 30fps 約 2 秒後可進入最低保護');
+  assert.match(extractFunction(gameSource, 'maybeRaiseAutoQuality'), /S\.phase\s*!==\s*['"]setup['"]/, '升級畫質只能發生在波次之間');
+});
+
+test('v2.1 mobile HUD, More pause restoration, score placement, and destructive guards stay intact', () => {
+  for (const id of ['waveInfo','btnMore','moreScreen','btnMuteMore','qualityMode','reduceMotion','reduceFlash','scoreToast','dangerEdge','supportConfirm']) {
+    assert.match(htmlSource, new RegExp(`id=['"]${id}['"]`), `缺少 v2.1 介面：${id}`);
+  }
+  assert.match(styleSource, /body\[data-layout="mport"\]\s+#hudScore\{display:none;\}/, '手機常駐 HUD 不可顯示總分');
+  assert.match(styleSource, /min-width:44px;\s*min-height:44px/, '手機常駐控制至少應有 44px 觸控尺寸');
+  const towerControls = sourceBetween(gameSource, '/* ── 塔選單', '/* ── 商店與控制');
+  assert.match(towerControls, /upgradeLockedUntil\s*=\s*now\s*\+\s*350/, '升級需要 350ms 輸入保護');
+  assert.match(towerControls, /sellConfirmUntil\s*=\s*now\s*\+\s*3000/, '拆除二次確認窗應為 3 秒');
+  assert.match(towerControls, /closeTowerMenu\(\);\s*sfx\([^;]+;\s*updateHUD\(\);\s*draw\(\)/, '暫停時拆塔也必須立即清除畫布殘影');
+  assert.match(extractFunction(gameSource, 'bpConfirm'), /updateHUD\(\);\s*draw\(\)/, '暫停時確認建塔也必須立即重畫');
+  assert.match(extractFunction(gameSource, 'updateHUD'), /refreshTowerMenu\(\)/, '塔面板餘額應隨 HUD 獎勵更新');
+  assert.match(extractFunction(gameSource, 'renderBuildMenu'), /disabled aria-disabled/, '買不起的手機建塔選項必須真正停用');
+
+  const screen = { classList:{ shown:false, contains(){ return this.shown; } } };
+  const state = { over:false, phase:'wave', manualPaused:false };
+  const context = {
+    S:state, morePauseWasManual:false,
+    syncPauseState(){ state.paused = state.manualPaused; }, updateMorePanel(){},
+    show(){ screen.classList.shown = true; }, hide(){ screen.classList.shown = false; },
+    document:{ getElementById:() => screen },
+  };
+  vm.runInNewContext([
+    extractFunction(gameSource, 'openMore'), extractFunction(gameSource, 'closeMore'),
+    'globalThis.__more__={openMore,closeMore};',
+  ].join('\n'), context);
+  context.__more__.openMore();
+  assert.equal(state.manualPaused, true, '更多面板開啟時應暫停');
+  context.__more__.closeMore();
+  assert.equal(state.manualPaused, false, '關閉後應恢復原本未暫停狀態');
+});
