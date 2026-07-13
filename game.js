@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.0.0';
+const APP_VERSION = 'v2.0.2';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -145,6 +145,7 @@ let muted = false;
 let raf = 0, lastT = 0;
 let selSup = -1;       // 支援瞄準模式
 let runGen = 0;        // 局次世代：舊局的 setTimeout 回呼不得影響新局
+let layoutPauseGen = 0;// 轉向暫停世代：只准最後一次轉向解除暫停
 let hitStop = 0;       // 慢動作剩餘秒數
 
 function newState(){
@@ -153,10 +154,21 @@ function newState(){
     towers:[], enemies:[], projs:[], fx:[], allies:[],
     path:[], grid:[], spawnQ:[], spawnT:0,
     playing:false, waveActive:false, over:false, paused:false,
+    manualPaused:false, layoutPaused:false,
+    phase:'setup', transitionGen:0,
     autoT:0, mod:MODS[0],
     supCd:[0,0,0], beam:null,
     critter:null, critT: 9 + Math.random()*8,
   };
+}
+function guardedTimeout(cb, delay, transitionToken){
+  const gameGen = runGen;
+  const state = S;
+  return setTimeout(() => {
+    if (gameGen !== runGen || state !== S) return;
+    if (transitionToken !== undefined && state && state.transitionGen !== transitionToken) return;
+    cb();
+  }, delay);
 }
 
 /* ── 迷宮路徑產生（seed = 關卡編號） ───────────────── */
@@ -218,20 +230,24 @@ function buildWave(lv){
     const extra = Math.floor(q.length * (S.mod.count - 1));
     for (let i=0;i<extra;i++) q.push({ ...q[Math.floor(rng()*q.length)] });
   }
-  S.spawnQ = q; S.spawnT = 0; S.waveActive = false;
+  S.spawnQ = q; S.spawnT = 0; S.waveActive = false; S.phase = 'setup';
 }
 
 /* ── 敵人 ─────────────────────────────────────────── */
 function spawnEnemy(item){
   const t = ETYPES[item.ti];
+  const hpMax = Number.isFinite(item.hpMax) ? item.hpMax : t.hp * item.hpMul;
+  const hp = Number.isFinite(item.hp) ? Math.max(1, Math.min(hpMax, item.hp)) : hpMax;
   S.enemies.push({
-    ti:item.ti, hp:t.hp*item.hpMul, hpMax:t.hp*item.hpMul,
+    ti:item.ti, hp, hpMax,
     seg:0, prog:0, x:S.path[0][0]*CELL+CELL/2, y:S.path[0][1]*CELL+CELL/2,
-    spd:t.spd, slowLeft:0, slowPct:0, markLeft:0, dead:false, wob:Math.random()*6.28,
+    spd:t.spd, slowLeft:0, slowPct:0, stunLeft:0,
+    markLeft:0, dead:false, wob:Math.random()*6.28,
   });
 }
 function moveEnemy(e, dt){
-  let sp = e.spd * S.mod.spd * (e.slowLeft > 0 ? (1 - e.slowPct) : 1);
+  const stopped = e.stunLeft > 0;
+  let sp = stopped ? 0 : e.spd * S.mod.spd * (e.slowLeft > 0 ? (1 - e.slowPct) : 1);
   let dist = sp * dt;
   while (dist > 0 && e.seg < S.path.length - 1){
     const [ax,ay] = S.path[e.seg], [bx,by] = S.path[e.seg+1];
@@ -254,7 +270,8 @@ function buffFactor(t){
   for (const o of S.towers){
     const s = TOWERS[o.ti];
     if (!s.buff || o === t) continue;
-    if ((o.x-t.x)**2 + (o.y-t.y)**2 <= o.range*o.range) return s.buff;
+    const range = o.range * S.mod.range;
+    if ((o.x-t.x)**2 + (o.y-t.y)**2 <= range*range) return s.buff;
   }
   return 1;
 }
@@ -303,6 +320,7 @@ function towerAct(t, dt, now){
 }
 
 function hitEnemy(e, dmg, src){
+  if (!S || S.over || !e || e.dead) return;
   if (e.markLeft > 0) dmg *= 1.5;  // 記者爆料：已曝光傷害+50%
   e.hp -= dmg;
   if (src && src.bounty) S.coins += src.bounty;   // 行員攔阻匯款：命中回收點數
@@ -326,7 +344,8 @@ function tryConvert(e){
   for (const tw of S.towers){
     const spec = TOWERS[tw.ti];
     if (!spec.convert) continue;
-    if ((e.x-tw.x)**2 + (e.y-tw.y)**2 > tw.range*tw.range) continue;
+    const range = tw.range * S.mod.range;
+    if ((e.x-tw.x)**2 + (e.y-tw.y)**2 > range*range) continue;
     if (Math.random() < spec.convert){
       S.allies.push({ p: e.seg + e.prog, spd:55, hitCd:0, x:e.x, y:e.y, done:false });
       burst(e.x, e.y, '#ffd166', 14);
@@ -338,31 +357,42 @@ function tryConvert(e){
 }
 
 /* ── 投射物 ───────────────────────────────────────── */
+function landProj(p, e){
+  if (p.splash){
+    burst(e.x, e.y, p.color, 8);
+    for (const o of S.enemies){
+      if (o.dead) continue;
+      if ((o.x-e.x)**2 + (o.y-e.y)**2 <= p.splash*p.splash) hitEnemy(o, p.dmg, p);
+    }
+  } else {
+    hitEnemy(e, p.dmg, p);
+  }
+  if (p.slow && !e.dead){
+    e.slowLeft = Math.max(e.slowLeft, p.slowT);
+    e.slowPct = Math.max(e.slowPct, p.slow);
+  }
+  if (p.stun && !e.dead) e.stunLeft = Math.max(e.stunLeft || 0, p.stun);
+  if (p.mark && !e.dead) e.markLeft = Math.max(e.markLeft, p.mark);
+  if (p.knock && !ETYPES[e.ti].boss && !e.dead){
+    e.seg = Math.max(0, e.seg - p.knock); e.prog = 0;
+  }
+}
+
 function moveProj(p, dt){
   const e = p.tx;
   if (!e || e.dead){ return true; }
   const dx = e.x - p.x, dy = e.y - p.y;
   const d = Math.hypot(dx, dy);
-  if (d < 14){
-    if (p.splash){
-      burst(e.x, e.y, p.color, 8);
-      for (const o of S.enemies){
-        if (o.dead) continue;
-        if ((o.x-e.x)**2 + (o.y-e.y)**2 <= p.splash*p.splash) hitEnemy(o, p.dmg, p);
-      }
-    } else {
-      hitEnemy(e, p.dmg, p);
-    }
-    if (p.slow){ e.slowLeft = Math.max(e.slowLeft, p.slowT); e.slowPct = p.slow; }
-    if (p.stun){ e.slowLeft = Math.max(e.slowLeft, p.stun); e.slowPct = 1; } // 警察逮捕：原地暈眩
-    if (p.mark){ e.markLeft = Math.max(e.markLeft, p.mark); }                // 記者：貼上「已曝光」
-    if (p.knock && !ETYPES[e.ti].boss && !e.dead){                               // 阿嬤：罵到倒退嚕
-      e.seg = Math.max(0, e.seg - p.knock); e.prog = 0;
-    }
+  const travel = p.spd * dt;
+  // 以整段移動做碰撞夾取；3 倍速或低幀時也不會一步跨過目標。
+  if (d <= 14 || travel >= Math.max(0, d - 14)){
+    landProj(p, e);
     return true;
   }
-  p.x += dx/d * p.spd * dt;
-  p.y += dy/d * p.spd * dt;
+  if (d > 0){
+    p.x += dx/d * travel;
+    p.y += dy/d * travel;
+  }
   return false;
 }
 
@@ -457,7 +487,7 @@ function useSupport(i, px, py){
     const dmg = 35 + S.level * 2;
     for (const e of S.enemies){
       if (e.dead) continue;
-      e.slowLeft = 2.5; e.slowPct = 1;
+      e.stunLeft = Math.max(e.stunLeft || 0, 2.5);
       if ((e.x-px)**2 + (e.y-py)**2 <= 140*140) hitEnemy(e, dmg, null);
     }
   } else {
@@ -540,9 +570,36 @@ function updateCritter(dt, now){
 }
 
 /* ── 主迴圈 ───────────────────────────────────────── */
-function loop(ts){
+function stopLoop(){
+  if (raf) cancelAnimationFrame(raf);
+  raf = 0;
+}
+function ensureLoop(){
+  if (raf || !S || S.paused || S.over || S.phase === 'clearing') return;
+  lastT = performance.now();
   raf = requestAnimationFrame(loop);
-  if (!S || S.paused || S.over){ lastT = ts; return; }
+}
+function syncPauseState(){
+  if (!S) return;
+  S.paused = !!(S.manualPaused || S.layoutPaused);
+  const btn = document.getElementById('btnPause');
+  if (btn) btn.textContent = S.paused ? '▶' : '❚❚';
+  applyControlA11y();
+  if (S.paused) stopLoop(); else ensureLoop();
+}
+function startWave(){
+  if (!S || S.over || S.phase !== 'setup' || S.waveActive) return false;
+  S.waveActive = true;
+  S.phase = 'wave';
+  S.autoT = 0;
+  banner(fmt(L().ui.waveBanner, {lv:S.level}));
+  updateHUD();
+  ensureLoop();
+  return true;
+}
+function loop(ts){
+  raf = 0;
+  if (!S || S.paused || S.over || S.phase === 'clearing'){ lastT = ts; return; }
   const rawDt = Math.min(.05, (ts - lastT)/1000);
   lastT = ts;
   let dt = rawDt * SPEEDS[speedIdx];
@@ -557,23 +614,29 @@ function loop(ts){
   // 強光手電筒光束
   if (S.beam){
     const b = S.beam;
-    b.pos += b.spd * dt;
+    const prev = b.pos;
+    const limit = (b.axis === 'x' ? W : H) + 60;
+    const next = Math.min(limit, prev + b.spd * dt);
+    const lo = Math.min(prev, next) - 28;
+    const hi = Math.max(prev, next) + 28;
     const dmg = 30 + S.level * 2;
     for (const e of S.enemies){
       if (e.dead || b.hit.has(e)) continue;
-      if (Math.abs((b.axis === 'x' ? e.x : e.y) - b.pos) < 28){
+      const ep = b.axis === 'x' ? e.x : e.y;
+      if (ep >= lo && ep <= hi){
         b.hit.add(e);
         e.markLeft = 4;
         hitEnemy(e, dmg, null);
       }
     }
-    if (b.pos > (b.axis === 'x' ? W : H) + 60) S.beam = null;
+    b.pos = next;
+    if (b.pos >= limit) S.beam = null;
   }
 
   // 自動出怪倒數（可提前手動按）
-  if (!S.waveActive && !S.over && S.autoT > 0){
+  if (S.phase === 'setup' && !S.waveActive && !S.over && S.autoT > 0){
     S.autoT -= dt;
-    if (S.autoT <= 0){ S.waveActive = true; banner(fmt(L().ui.waveBanner, {lv:S.level})); }
+    if (S.autoT <= 0) startWave();
   }
   // 出怪
   if (S.waveActive && S.spawnQ.length){
@@ -588,7 +651,11 @@ function loop(ts){
   for (const e of S.enemies){
     if (e.dead) continue;
     e.wob += dt*8;
-    if (e.slowLeft > 0) e.slowLeft -= dt;   // 狀態效果以遊戲時間計
+    if (e.slowLeft > 0){
+      e.slowLeft = Math.max(0, e.slowLeft - dt);
+      if (!e.slowLeft) e.slowPct = 0;
+    }
+    if (e.stunLeft > 0) e.stunLeft = Math.max(0, e.stunLeft - dt);
     if (e.markLeft > 0) e.markLeft -= dt;
     if (moveEnemy(e, dt)){
       e.dead = true;
@@ -600,6 +667,8 @@ function loop(ts){
     }
   }
   S.enemies = S.enemies.filter(e => !e.dead);
+  // gameOver 可能在敵人移動中發生；同一幀不得再讓塔、投射物或志工加分。
+  if (S.over){ updateHUD(); draw(); return; }
   // 塔與投射物
   for (const t of S.towers){ t.flash = Math.max(0, t.flash-dt); towerAct(t, dt, now); }
   S.projs = S.projs.filter(p => !moveProj(p, dt));
@@ -635,12 +704,12 @@ function loop(ts){
   S.fx = S.fx.filter(f => f.life > 0);
 
   // 波次結束 → 過關
-  if (S.waveActive && !S.spawnQ.length && !S.enemies.length && !S.over){
-    S.waveActive = false;
+  if (S.phase === 'wave' && S.waveActive && !S.spawnQ.length && !S.enemies.length && !S.over){
     levelClear();
   }
   updateHUD();
   draw();
+  ensureLoop();
 }
 
 /* ── 損命／結束 ───────────────────────────────────── */
@@ -648,14 +717,30 @@ function loseLife(){
   S.lives--;
   if (S.lives <= 0){ gameOver(false); return; }
   S.hp = HP_START;
+  // 只重排仍存活與尚未出現的敵人；不重建已擊破者，避免重複刷獎勵。
+  // 存活者保留目前血量，防止行員每次損命後重新對滿血敵人刷命中獎勵。
+  const active = S.enemies
+    .filter(e => !e.dead)
+    .map(e => ({
+      ti:e.ti, gap:.25, hpMul:e.hpMax / ETYPES[e.ti].hp,
+      hp:e.hp, hpMax:e.hpMax,
+    }));
+  S.spawnQ = active.concat(S.spawnQ);
   S.enemies = []; S.projs = []; S.allies = []; S.beam = null;
   S.critter = null; S.critT = 9 + Math.random()*8;
-  buildWave(S.level);          // 重打本關整波（不會出現「損命後立刻過關」）
+  S.spawnT = 0;
   S.waveActive = true;
+  S.phase = 'wave';
   banner(fmt(L().ui.lifeLost, {n:S.lives}));
 }
 function gameOver(win){
+  if (!S || S.over) return false;
   S.over = true;
+  S.waveActive = false;
+  S.phase = 'over';
+  S.transitionGen++;
+  stopLoop();
+  cancelPendingTap();
   const t = document.getElementById('endTitle');
   t.textContent = win ? L().ui.winTitle : L().ui.loseTitle;
   // 敗北＝最接近受害者的時刻：切換為安慰提醒場景，絕不嘲諷
@@ -677,22 +762,36 @@ function gameOver(win){
   if (win){ sfx(880, .5); }
   else {   // 溫柔的上行三音：安慰與希望，而非失敗嘲弄
     sfx(392, .25, 'sine');
-    setTimeout(() => sfx(494, .3, 'sine'), 220);
-    setTimeout(() => sfx(587, .5, 'sine'), 470);
+    guardedTimeout(() => sfx(494, .3, 'sine'), 220);
+    guardedTimeout(() => sfx(587, .5, 'sine'), 470);
   }
+  announceStatus(t.textContent);
+  return true;
 }
 
 /* ── 過關流程：轉場 →（每3關測驗）→ 下一關 ────────── */
 function levelClear(){
+  if (!S || S.over || S.phase === 'clearing') return false;
+  if (S.phase !== 'wave' || S.spawnQ.length || S.enemies.length) return false;
+  S.phase = 'clearing';
+  S.waveActive = false;
+  S.autoT = 0;
+  const token = ++S.transitionGen;
+  stopLoop();
+  cancelPendingTap();
+  closeTowerMenu();
+  closeBuildMenu();
   S.score += 50 + S.level * 5;
   S.coins += 40 + Math.floor(S.level * 2) + Math.floor(S.coins * .05); // 過關獎勵＋5% 利息
-  if (S.level >= MAX_LEVEL){ playClearFx(() => gameOver(true)); return; }
+  if (S.level >= MAX_LEVEL){ playClearFx(() => gameOver(true), token); return true; }
   playClearFx(() => {
-    if (S.level % 3 === 0) showQuiz(afterQuiz);
-    else afterQuiz();
-  });
+    if (S.level % 3 === 0) showQuiz(() => afterQuiz(token), token);
+    else afterQuiz(token);
+  }, token);
+  return true;
 }
-function afterQuiz(){
+function afterQuiz(token){
+  if (!S || S.over || S.phase !== 'clearing' || S.transitionGen !== token) return;
   S.level++;
   genLevel(S.level);
   S.autoT = 10;
@@ -704,6 +803,7 @@ function afterQuiz(){
     banner(fmt(L().support.unlock, {name:L().support.names[supNews[0].i]}));
     sfx(520,.1); sfx(780,.1); sfx(1040,.15);
     updateHUD();
+    ensureLoop();
     return;
   }
   const news = TOWERS.map((t,i) => ({t,i})).filter(o => o.t.unlock === S.level);
@@ -712,10 +812,12 @@ function afterQuiz(){
     : fmt(L().ui.stageBanner, {lv:S.level, boss:S.level%10===0?L().ui.bossTag:'', mod:modTag}));
   if (news.length){ sfx(520,.1); sfx(780,.1); sfx(1040,.15); }
   updateHUD();
+  ensureLoop();
 }
 
 /* ── 快打旋風式過關轉場 ───────────────────────────── */
-function playClearFx(cb){
+function playClearFx(cb, token){
+  if (!S || S.phase !== 'clearing' || S.transitionGen !== token) return;
   const fx = document.getElementById('stageClear');
   document.getElementById('clearWordEn').textContent =
     `STAGE ${S.level} ` + CLEAR_EN[Math.floor(Math.random()*CLEAR_EN.length)];
@@ -723,15 +825,23 @@ function playClearFx(cb){
     L().ui.clear[Math.floor(Math.random()*L().ui.clear.length)];
   document.getElementById('clearTip').textContent = '💡 ' + L().tips[(S.level - 1) % L().tips.length];
   fx.classList.remove('hidden','out');
-  sfx(660,.1); setTimeout(()=>sfx(880,.12),120); setTimeout(()=>sfx(1180,.2),260);
-  const gen = runGen;
-  setTimeout(() => { if (gen !== runGen) return; fx.classList.add('out'); }, 2000);
-  setTimeout(() => { if (gen !== runGen) return; fx.classList.add('hidden'); cb(); }, 2350);
+  fx.setAttribute('aria-hidden', 'false');
+  announceStatus(document.getElementById('clearWordZh').textContent);
+  sfx(660,.1);
+  guardedTimeout(()=>sfx(880,.12),120,token);
+  guardedTimeout(()=>sfx(1180,.2),260,token);
+  guardedTimeout(() => fx.classList.add('out'), 2000, token);
+  guardedTimeout(() => {
+    fx.classList.add('hidden');
+    fx.setAttribute('aria-hidden', 'true');
+    cb();
+  }, 2350, token);
 }
 
 /* ── 續命測驗（避開詐騙 → +1 命） ─────────────────── */
 let quizUsed = [];
-function showQuiz(cb){
+function showQuiz(cb, token){
+  if (!S || S.phase !== 'clearing' || S.transitionGen !== token) return;
   const QZ = L().quiz;
   let pool = QZ.map((q,i)=>i).filter(i => !quizUsed.includes(i));
   if (!pool.length){ quizUsed = []; pool = QZ.map((q,i)=>i); }
@@ -749,7 +859,10 @@ function showQuiz(cb){
   (goodLeft?bGood:bBad).style.order = 1;
   bGood.textContent = q.good; bBad.textContent = q.bad;
   bGood.disabled = bBad.disabled = false;
+  let settled = false;
   const done = (ok) => {
+    if (settled || !S || S.phase !== 'clearing' || S.transitionGen !== token) return;
+    settled = true;
     bGood.disabled = bBad.disabled = true;
     res.classList.remove('hidden');
     if (ok){
@@ -758,7 +871,7 @@ function showQuiz(cb){
       res.classList.add('ok');
       res.textContent = (gained ? L().ui.quizOkLife : L().ui.quizOkFull) + '\n' + q.why;
       if (!gained) S.score += 100;
-      sfx(880,.15); setTimeout(()=>sfx(1320,.2),130);
+      sfx(880,.15); guardedTimeout(()=>sfx(1320,.2),130,token);
     } else {
       S.hp = Math.max(1, S.hp - 5);
       res.classList.add('no');
@@ -766,8 +879,7 @@ function showQuiz(cb){
       sfx(70,.3,'sawtooth');
     }
     updateHUD();
-    const gen = runGen;
-    setTimeout(() => { if (gen !== runGen) return; hide('quizScreen'); cb(); }, 2600);
+    guardedTimeout(() => { hide('quizScreen'); cb(); }, 2600, token);
   };
   bGood.onclick = () => done(true);
   bBad.onclick  = () => done(false);
@@ -942,6 +1054,14 @@ function draw(){
       ctx.fillRect(0, p-3, W, 6);
     }
   }
+  if (kbActive && document.activeElement === cv){
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(kbFocus.gx*CELL + 3, kbFocus.gy*CELL + 3, CELL - 6, CELL - 6);
+    ctx.setLineDash([]);
+  }
   ctx.globalAlpha = 1;
   ctx.restore();
 }
@@ -1060,6 +1180,11 @@ function drawEnemy(e){
     ctx.fillStyle = 'rgba(80,160,255,.6)';
     ctx.fillRect(x-s, y-s, s*2, 4);
   }
+  if (e.stunLeft > 0){
+    ctx.fillStyle = '#ffd166';
+    ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('✦', x, y - s - 13);
+  }
   // 已曝光標記（記者爆料）
   if (e.markLeft > 0){
     ctx.fillStyle = '#c061cb';
@@ -1075,8 +1200,169 @@ function drawEnemy(e){
 
 /* ══════════════════ UI ══════════════════ */
 const $ = id => document.getElementById(id);
-function show(id){ $(id).classList.add('show'); }
-function hide(id){ $(id).classList.remove('show'); }
+const MODAL_IDS = new Set(['startScreen','howScreen','boardScreen','quizScreen','endScreen']);
+const ESCAPABLE_MODAL_IDS = new Set(['howScreen','boardScreen']);
+const modalStack = [];
+let isolationSnapshot = null;
+
+function focusBoard(){
+  if (cv && cv.focus) cv.focus({preventScroll:true});
+}
+function applyControlA11y(){
+  const u = L().ui;
+  const hud = u.hudTitles;
+  const controls = u.controls;
+  const titles = {
+    hudLevel:hud.level, hudHP:hud.hp, hudLives:hud.lives,
+    hudCoin:hud.coins, hudScore:hud.score,
+  };
+  for (const [id, value] of Object.entries(titles)){
+    const el = document.getElementById(id);
+    if (el && value) el.setAttribute('title', value);
+  }
+  const speed = document.getElementById('btnSpeed');
+  if (speed){
+    const label = fmt(controls.speed, {speed:SPEEDS[speedIdx]});
+    speed.setAttribute('title', label);
+    speed.setAttribute('aria-label', label);
+  }
+  const pause = document.getElementById('btnPause');
+  if (pause){
+    const pressed = !!(S && S.paused);
+    const label = pressed ? controls.resume : controls.pause;
+    pause.setAttribute('title', label);
+    pause.setAttribute('aria-label', label);
+    pause.setAttribute('aria-pressed', String(pressed));
+  }
+  const mute = document.getElementById('btnMute');
+  if (mute){
+    const label = muted ? controls.unmute : controls.mute;
+    mute.setAttribute('title', label);
+    mute.setAttribute('aria-label', label);
+    mute.setAttribute('aria-pressed', String(muted));
+  }
+}
+
+function setInert(el, value){
+  if (!el) return;
+  el.inert = value;
+  if (value) el.setAttribute('inert', '');
+  else el.removeAttribute('inert');
+}
+function syncModalIsolation(){
+  const activeEntry = modalStack[modalStack.length - 1];
+  const active = activeEntry && document.getElementById(activeEntry.id);
+  const children = document.body ? Array.from(document.body.children) : [];
+  if (active){
+    if (!isolationSnapshot){
+      isolationSnapshot = children.map(el => ({
+        el,
+        inert: !!el.inert || el.hasAttribute('inert'),
+        aria: el.getAttribute('aria-hidden'),
+      }));
+    }
+    for (const child of children){
+      const blocked = child !== active;
+      setInert(child, blocked);
+      child.setAttribute('aria-hidden', blocked ? 'true' : 'false');
+    }
+  } else if (isolationSnapshot){
+    for (const saved of isolationSnapshot){
+      if (!saved.el.isConnected) continue;
+      setInert(saved.el, saved.inert);
+      if (saved.aria === null) saved.el.removeAttribute('aria-hidden');
+      else saved.el.setAttribute('aria-hidden', saved.aria);
+    }
+    isolationSnapshot = null;
+  }
+  document.querySelectorAll('.overlay').forEach(el => {
+    if (active && el === active) el.setAttribute('aria-hidden', 'false');
+    else if (!el.classList.contains('show')) el.setAttribute('aria-hidden', 'true');
+  });
+}
+function modalFocusables(el){
+  return Array.from(el.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+  )).filter(node => node.getAttribute('aria-hidden') !== 'true' && !node.closest('[inert]'));
+}
+function focusModal(id){
+  const top = modalStack[modalStack.length - 1];
+  if (!top || top.id !== id) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  const target = el.querySelector('[autofocus], .panel[tabindex="-1"]') || modalFocusables(el)[0] || el;
+  if (!target.hasAttribute('tabindex') && target === el) target.setAttribute('tabindex', '-1');
+  if (target.focus) target.focus({preventScroll:true});
+}
+function show(id){
+  const el = $(id);
+  if (!el) return;
+  el.classList.add('show');
+  el.setAttribute('aria-hidden', 'false');
+  if (MODAL_IDS.has(id) && !modalStack.some(entry => entry.id === id)){
+    modalStack.push({ id, opener:document.activeElement });
+    syncModalIsolation();
+    setTimeout(() => focusModal(id), 0);
+  }
+}
+function hide(id){
+  const el = $(id);
+  if (!el) return;
+  el.classList.remove('show');
+  el.setAttribute('aria-hidden', 'true');
+  const index = modalStack.map(entry => entry.id).lastIndexOf(id);
+  const wasTop = index === modalStack.length - 1;
+  const entry = index >= 0 ? modalStack.splice(index, 1)[0] : null;
+  syncModalIsolation();
+  const canRestore = wasTop && entry && entry.opener && entry.opener.isConnected &&
+    !entry.opener.disabled && !entry.opener.closest('[inert]');
+  if (canRestore){
+    setTimeout(() => entry.opener.focus && entry.opener.focus({preventScroll:true}), 0);
+  } else if (wasTop && modalStack.length){
+    setTimeout(() => focusModal(modalStack[modalStack.length - 1].id), 0);
+  }
+}
+document.addEventListener('keydown', ev => {
+  const top = modalStack[modalStack.length - 1];
+  if (!top) return;
+  const el = document.getElementById(top.id);
+  if (!el) return;
+  if (ev.key === 'Escape' && ESCAPABLE_MODAL_IDS.has(top.id)){
+    ev.preventDefault(); ev.stopPropagation(); hide(top.id); return;
+  }
+  if (ev.key !== 'Tab') return;
+  const items = modalFocusables(el);
+  if (!items.length){ ev.preventDefault(); focusModal(top.id); return; }
+  const first = items[0], last = items[items.length - 1];
+  const panel = el.querySelector('.panel');
+  if (ev.shiftKey && (document.activeElement === first || document.activeElement === panel || !el.contains(document.activeElement))){
+    ev.preventDefault(); last.focus();
+  } else if (!ev.shiftKey && (document.activeElement === last || !el.contains(document.activeElement))){
+    ev.preventDefault(); first.focus();
+  }
+}, true);
+
+(function initializeVisibleModal(){
+  const start = document.getElementById('startScreen');
+  if (!start || !start.classList.contains('show')) return;
+  modalStack.push({ id:'startScreen', opener:null });
+  syncModalIsolation();
+  setTimeout(() => focusModal('startScreen'), 0);
+})();
+
+function announceStatus(msg){
+  const el = document.getElementById('gameStatus');
+  if (el && msg) el.textContent = String(msg);
+}
+function announceKeyboardCell(){
+  if (!S || !S.grid[kbFocus.gy]) return;
+  const u = L().ui;
+  const tower = S.towers.find(t => t.gx === kbFocus.gx && t.gy === kbFocus.gy);
+  const kind = tower
+    ? fmt(u.canvasTower, {name:L().towers[tower.ti], level:tower.lv})
+    : (S.grid[kbFocus.gy][kbFocus.gx] === 1 ? u.canvasPath : u.canvasGrass);
+  announceStatus(fmt(u.canvasCell, {x:kbFocus.gx + 1, y:kbFocus.gy + 1, kind}));
+}
 
 function updateHUD(){
   $('lvNow').textContent = S.level;
@@ -1089,6 +1375,7 @@ function updateHUD(){
     const spec = TOWERS[i]; if (!spec) return;
     const locked = S.level < (spec.unlock || 1);
     b.classList.toggle('sel', selShop === i);
+    b.setAttribute('aria-pressed', String(selShop === i));
     b.classList.toggle('locked', locked);
     b.disabled = locked || S.coins < spec.cost;
     const tc = b.querySelector && b.querySelector('.tc');
@@ -1100,14 +1387,18 @@ function updateHUD(){
     const cd = S.supCd[i];
     b.classList.toggle('locked', locked);
     b.classList.toggle('aiming', selSup === i);
+    b.setAttribute('aria-pressed', String(selSup === i));
     b.classList.toggle('ready', !locked && cd <= 0);
     b.disabled = locked || cd > 0;
     const cdEl = b.querySelector && b.querySelector('.cd');
     if (cdEl) cdEl.textContent = locked ? '🔒Lv.' + sp.unlock : (cd > 0 ? Math.ceil(cd) + 's' : 'GO');
   });
   const nb = $('btnNextWave');
-  nb.disabled = S.waveActive;
-  nb.textContent = S.waveActive ? L().ui.waveIn : (S.autoT > 0 ? fmt(L().ui.waveCount, {n:Math.ceil(S.autoT)}) : L().ui.waveGo);
+  const canStart = !S.over && S.phase === 'setup' && !S.waveActive;
+  nb.disabled = !canStart;
+  nb.textContent = S.phase === 'wave' || S.phase === 'clearing'
+    ? L().ui.waveIn
+    : (S.autoT > 0 ? fmt(L().ui.waveCount, {n:Math.ceil(S.autoT)}) : L().ui.waveGo);
 }
 
 let bannerTimer = 0;
@@ -1115,6 +1406,7 @@ function banner(msg){
   const b = $('waveBanner');
   b.textContent = msg;
   b.classList.remove('hidden');
+  announceStatus(msg);
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => b.classList.add('hidden'), 2600);
 }
@@ -1198,11 +1490,59 @@ function renderBuildMenu(){
 const ptrs = new Map();          // 進行中的 pointer
 let gest = null;                 // 雙指手勢狀態
 let tapCand = null;              // 單指 tap 候選
-let lastTapAt = 0;
+let pendingTap = null;           // 延後確認第一擊，避免雙擊前先執行遊戲操作
+let kbFocus = { gx:0, gy:0 };
+let kbActive = false;
 const TAP_SLOP = 12;             // 內部像素
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_SLOP = 28;
+
+function cancelPendingTap(){
+  if (pendingTap && pendingTap.timer) clearTimeout(pendingTap.timer);
+  pendingTap = null;
+}
+function commitPendingTap(candidate){
+  if (!candidate || pendingTap !== candidate) return;
+  pendingTap = null;
+  if (candidate.run === runGen) handleTap(candidate.ix, candidate.iy);
+}
+function canDoubleTapReset(ix, iy){
+  if (!S || selSup >= 0 || selShop >= 0 || bp.open) return false;
+  const [wx, wy] = internalToWorld(ix, iy);
+  const gx = Math.floor(wx / CELL), gy = Math.floor(wy / CELL);
+  if (gx < 0 || gy < 0 || gx >= COLS || gy >= ROWS) return false;
+  return !S.towers.some(t => t.gx === gx && t.gy === gy);
+}
+function queueTap(ix, iy){
+  // 全圖倍率沒有雙擊重設需求，單擊應立即反應。
+  if (view.scale <= 1.01){
+    cancelPendingTap();
+    handleTap(ix, iy);
+    return;
+  }
+  const nowT = performance.now();
+  if (pendingTap){
+    const first = pendingTap;
+    const closeInTime = nowT - first.at <= DOUBLE_TAP_MS;
+    const closeInSpace = Math.hypot(ix - first.ix, iy - first.iy) <= DOUBLE_TAP_SLOP;
+    const onBlankBoard = canDoubleTapReset(first.ix, first.iy) && canDoubleTapReset(ix, iy);
+    if (closeInTime && closeInSpace && onBlankBoard){
+      cancelPendingTap();
+      resetView();
+      if (S) draw();
+      return;
+    }
+    clearTimeout(first.timer);
+    pendingTap = null;
+    if (first.run === runGen) handleTap(first.ix, first.iy);
+  }
+  const candidate = { ix, iy, at:nowT, run:runGen, timer:0 };
+  candidate.timer = setTimeout(() => commitPendingTap(candidate), DOUBLE_TAP_MS);
+  pendingTap = candidate;
+}
 
 function handleTap(ix, iy){      // ix,iy＝內部像素
-  if (!S || S.over || S.paused) return;
+  if (!S || S.over || S.paused || S.phase === 'clearing') return;
   const [wx, wy] = internalToWorld(ix, iy);
   if (selSup >= 0){ useSupport(selSup, wx, wy); return; }
   const gx = Math.floor(wx / CELL), gy = Math.floor(wy / CELL);
@@ -1235,10 +1575,12 @@ function handleTap(ix, iy){      // ix,iy＝內部像素
 
 cv.addEventListener('pointerdown', ev => {
   if (!S || S.over) return;
+  if (ev.button !== undefined && ev.button !== 0) return;
   ev.preventDefault();
   ptrs.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
   if (ptrs.size === 2 && LAYOUT !== 'desktop'){
     tapCand = null;                            // 進入手勢：取消 tap
+    cancelPendingTap();
     const [a, b] = [...ptrs.values()];
     const [ax, ay] = clientToInternal(a.x, a.y);
     const [bx, by] = clientToInternal(b.x, b.y);
@@ -1282,20 +1624,57 @@ function ptrEnd(ev){
   if (tapCand && ev.pointerId === tapCand.id){
     const [ix, iy] = clientToInternal(ev.clientX, ev.clientY);
     if (Math.hypot(ix - tapCand.ix, iy - tapCand.iy) <= TAP_SLOP){
-      const nowT = performance.now();
-      if (nowT - lastTapAt < 350 && view.scale > 1.01){
-        resetView();                            // 雙擊：回到全圖
-        lastTapAt = 0;
-      } else {
-        lastTapAt = nowT;
-        handleTap(ix, iy);
-      }
+      queueTap(ix, iy);
     }
     tapCand = null;
   }
 }
+function ptrCancel(ev){
+  ptrs.delete(ev.pointerId);
+  if (gest && ptrs.size < 2) gest = null;
+  if (tapCand && ev.pointerId === tapCand.id) tapCand = null;
+}
 cv.addEventListener('pointerup', ptrEnd);
-cv.addEventListener('pointercancel', ptrEnd);
+cv.addEventListener('pointercancel', ptrCancel);
+cv.addEventListener('contextmenu', ev => ev.preventDefault());
+
+cv.addEventListener('focus', () => {
+  kbActive = true;
+  if (S){ draw(); announceKeyboardCell(); }
+});
+cv.addEventListener('blur', () => {
+  kbActive = false;
+  if (S) draw();
+});
+cv.addEventListener('keydown', ev => {
+  if (!S || S.over) return;
+  let moved = false;
+  if (ev.key === 'ArrowLeft'){ kbFocus.gx = Math.max(0, kbFocus.gx - 1); moved = true; }
+  else if (ev.key === 'ArrowRight'){ kbFocus.gx = Math.min(COLS - 1, kbFocus.gx + 1); moved = true; }
+  else if (ev.key === 'ArrowUp'){ kbFocus.gy = Math.max(0, kbFocus.gy - 1); moved = true; }
+  else if (ev.key === 'ArrowDown'){ kbFocus.gy = Math.min(ROWS - 1, kbFocus.gy + 1); moved = true; }
+  else if (ev.key === 'Enter' || ev.key === ' '){
+    ev.preventDefault();
+    cancelPendingTap();
+    const wx = kbFocus.gx * CELL + CELL/2;
+    const wy = kbFocus.gy * CELL + CELL/2;
+    handleTap(wx * view.scale + view.ox, wy * view.scale + view.oy);
+    draw(); announceKeyboardCell();
+    return;
+  } else if (ev.key === 'Escape'){
+    ev.preventDefault();
+    cancelPendingTap();
+    selShop = -1; selSup = -1;
+    closeTowerMenu(); closeBuildMenu();
+    updateHUD(); draw(); announceKeyboardCell();
+    return;
+  }
+  if (moved){
+    ev.preventDefault();
+    kbActive = true;
+    draw(); announceKeyboardCell();
+  }
+});
 
 /* ── 塔選單（升級／拆除） ─────────────────────────── */
 function openTowerMenu(t){
@@ -1341,49 +1720,61 @@ $('tmSell').addEventListener('click', () => {
 /* ── 商店與控制 ───────────────────────────────────── */
 document.querySelectorAll('.tower-btn').forEach((b,i) => {
   b.addEventListener('click', () => {
+    if (!S || S.over || S.phase === 'clearing') return;
     selShop = (selShop === i) ? -1 : i;
     closeTowerMenu(); updateHUD();
+    focusBoard();
   });
 });
 document.querySelectorAll('.sup-btn').forEach((b,i) => {
   b.addEventListener('click', () => {
-    if (!S || S.level < SUPPORT[i].unlock || S.supCd[i] > 0) return;
+    if (!S || S.over || S.phase === 'clearing' || S.level < SUPPORT[i].unlock || S.supCd[i] > 0) return;
     selSup = (selSup === i) ? -1 : i;
     selShop = -1; closeTowerMenu();
     if (selSup >= 0) banner(L().support.aim);
     updateHUD();
+    focusBoard();
   });
 });
 $('btnNextWave').addEventListener('click', () => {
-  if (!S.waveActive){ S.waveActive = true; S.autoT = 0; banner(fmt(L().ui.waveBanner, {lv:S.level})); updateHUD(); }
+  startWave();
 });
 $('btnSpeed').addEventListener('click', () => {
   speedIdx = (speedIdx+1) % SPEEDS.length;
   $('btnSpeed').textContent = `▶×${SPEEDS[speedIdx]}`;
+  applyControlA11y();
 });
 $('btnPause').addEventListener('click', () => {
-  S.paused = !S.paused;
-  $('btnPause').textContent = S.paused ? '▶' : '❚❚';
+  if (!S || S.over) return;
+  S.manualPaused = !S.manualPaused;
+  syncPauseState();
 });
 $('btnMute').addEventListener('click', () => {
   muted = !muted;
   $('btnMute').textContent = muted ? '♪̸' : '♪';
   $('btnMute').style.opacity = muted ? .5 : 1;
+  applyControlA11y();
 });
 
 /* ── 排行榜（localStorage 匿名） ──────────────────── */
 const LB_KEY = 'asmd_board_v1';
+const MAX_BOARD_SCORE = Number.MAX_SAFE_INTEGER;
 function loadBoard(){
   // 完整性防護：localStorage 可能被手動竄改，載入時做型別消毒
   try{
     const raw = JSON.parse(localStorage.getItem(LB_KEY)) || [];
     if (!Array.isArray(raw)) return [];
-    return raw.filter(r => r && typeof r === 'object')
+    return raw.filter(r => {
+      if (!r || typeof r !== 'object') return false;
+      const score = Number(r.s), level = Number(r.lv);
+      return Number.isFinite(score) && score >= 0 && score <= MAX_BOARD_SCORE &&
+        Number.isFinite(level);
+    })
       .map(r => ({
         n: String(r.n || '匿名').slice(0, 10),
-        s: Math.max(0, Math.floor(Number(r.s) || 0)),
-        lv: Math.min(MAX_LEVEL, Math.max(1, Math.floor(Number(r.lv) || 1))),
-        d: Math.floor(Number(r.d) || 0),
+        s: Math.floor(Number(r.s)),
+        lv: Math.min(MAX_LEVEL, Math.max(1, Math.floor(Number(r.lv)))),
+        d: Number.isFinite(Number(r.d)) ? Math.floor(Number(r.d)) : 0,
       }))
       .slice(0, 10);
   }catch(e){ return []; }
@@ -1436,19 +1827,44 @@ function relayout(){
     for (const e of S.enemies){ const tx = e.x; e.x = e.y; e.y = tx; }
     for (const a of S.allies){ const tx = a.x; a.x = a.y; a.y = tx; }
     if (S.critter){ const tx = S.critter.x; S.critter.x = S.critter.y; S.critter.y = tx; }
-    S.projs = []; S.fx = []; S.beam = null;   // 投射物/特效瞬移易錯，直接汰換
+    for (const p of S.projs){ const tx = p.x; p.x = p.y; p.y = tx; }
+    for (const f of S.fx){
+      if (Number.isFinite(f.x) && Number.isFinite(f.y)){
+        const tx = f.x; f.x = f.y; f.y = tx;
+      }
+      if (Number.isFinite(f.x1) && Number.isFinite(f.y1)){
+        const tx1 = f.x1; f.x1 = f.y1; f.y1 = tx1;
+      }
+      if (Number.isFinite(f.x2) && Number.isFinite(f.y2)){
+        const tx2 = f.x2; f.x2 = f.y2; f.y2 = tx2;
+      }
+      if (Number.isFinite(f.vx) && Number.isFinite(f.vy)){
+        const tv = f.vx; f.vx = f.vy; f.vy = tv;
+      }
+    }
+    if (S.beam) S.beam.axis = S.beam.axis === 'x' ? 'y' : 'x';
+    if (kbFocus){
+      const kgx = kbFocus.gx;
+      kbFocus.gx = Math.min(COLS - 1, kbFocus.gy);
+      kbFocus.gy = Math.min(ROWS - 1, kgx);
+    }
     buildGround();
+    cancelPendingTap();
     closeTowerMenu(); closeBuildMenu(); resetView(); selShop = -1; selSup = -1;
     // 暫停 0.6 秒讓玩家重新定位
-    S.paused = true;
+    S.layoutPaused = true;
+    const state = S;
     const gen = runGen;
+    const pauseGen = ++layoutPauseGen;
+    syncPauseState();
     setTimeout(() => {
-      if (gen !== runGen || !S) return;
-      S.paused = false;
-      $('btnPause').textContent = '❚❚';
+      if (gen !== runGen || state !== S || pauseGen !== layoutPauseGen) return;
+      state.layoutPaused = false;
+      syncPauseState();
     }, 600);
     banner(L().ui.viewSwitched);
     updateHUD();
+    draw();
   } else if (S){
     buildGround();
   }
@@ -1480,24 +1896,35 @@ function applyI18n(){
     u.howList.forEach(s => { const li = document.createElement('li'); li.innerHTML = s; ul.appendChild(li); });
   }
   set('quizTitle', u.quizTitle);
+  const board = $('cv'); if (board) board.setAttribute('aria-label', u.canvasLabel);
+  set('canvasHelp', u.canvasHelp);
+  applyControlA11y();
   set('boardTitle', u.boardTitle); set('boardNote', u.boardNote);
   const cb = document.querySelector('.close-board'); if (cb) cb.textContent = u.boardClose;
   set('btnRetry', u.btnRetry);
   const sv = $('btnSaveScore'); if (sv && !sv.disabled) sv.textContent = u.btnSave;
   set('tmUpLbl', u.upLbl); set('tmSellLbl', u.sellLbl);
+  set('pwaMsg', u.pwaMsg); set('pwaYes', u.pwaYes); set('pwaNo', u.pwaNo); set('pwaNever', u.pwaNever);
   document.querySelectorAll('.tower-btn').forEach((b,i) => {
     const tn = b.querySelector && b.querySelector('.tn');
     if (tn && L().towers[i]) tn.textContent = L().towers[i];
+    if (L().towerTips[i]) b.setAttribute('title', L().towerTips[i]);
   });
   set('supLbl', L().support.title);
   document.querySelectorAll('.sup-btn').forEach((b,i) => {
     const sn = b.querySelector && b.querySelector('.sn');
     if (sn && L().support.names[i]) sn.textContent = L().support.names[i];
+    if (L().support.tips[i]) b.setAttribute('title', L().support.tips[i]);
   });
   document.querySelectorAll('.lang-btn').forEach(b => {
-    if (b.dataset) b.classList.toggle('sel', b.dataset.lang === LANG);
+    if (b.dataset){
+      const selected = b.dataset.lang === LANG;
+      b.classList.toggle('sel', selected);
+      b.setAttribute('aria-pressed', String(selected));
+    }
   });
   if (S) updateHUD();
+  if (S && document.activeElement === board) announceKeyboardCell();
 }
 document.querySelectorAll('.lang-btn').forEach(b => {
   b.addEventListener('click', () => {
@@ -1527,9 +1954,13 @@ document.querySelector('.close-board').addEventListener('click', () => hide('boa
 $('btnRetry').addEventListener('click', () => { hide('endScreen'); startGame(); });
 
 function startGame(){
+  stopLoop();
   runGen++;                                     // 讓上一局的 setTimeout 全部失效
+  layoutPauseGen++;
+  cancelPendingTap();
   S = newState();
   quizUsed = [];
+  kbFocus = { gx:0, gy:0 };
   selShop = -1; selTower = null; speedIdx = 0; selSup = -1; hitStop = 0;
   closeTowerMenu();
   closeBuildMenu();
@@ -1539,47 +1970,68 @@ function startGame(){
   if (fx) fx.classList.add('hidden');
   $('btnSpeed').textContent = '▶×1';
   $('btnPause').textContent = '❚❚';
+  applyControlA11y();
   genLevel(1);
   S.autoT = 15;                       // 第 1 關給新手多一點佈陣時間
   banner(L().ui.startBanner);
   updateHUD();
-  if (!raf){ lastT = performance.now(); raf = requestAnimationFrame(loop); }
+  draw();
+  focusBoard();
+  ensureLoop();
 }
 
 /* ── PWA 安裝提示（過第 3 關後一次性；尊重玩家，可永久關閉） ── */
 let deferredPrompt = null;
+const PWA_NEVER_KEY = 'asmd_pwa_never';
 window.addEventListener('beforeinstallprompt', ev => {
   ev.preventDefault();
   deferredPrompt = ev;
+  if (S && S.level >= 4) maybeOfferInstall();
 });
-function dismissPwa(){
-  try{ localStorage.setItem('asmd_pwa_dismiss', '1'); }catch(e){}
+function dismissPwa(permanent){
+  if (permanent){
+    try{ localStorage.setItem(PWA_NEVER_KEY, '1'); }catch(e){}
+  }
   const bar = document.getElementById('pwaBar');
   if (bar) bar.classList.add('hidden');
 }
 function maybeOfferInstall(){
   if (!deferredPrompt) return;                      // iOS 無此 API：不打擾
-  try{ if (localStorage.getItem('asmd_pwa_dismiss')) return; }catch(e){ return; }
+  try{ if (localStorage.getItem(PWA_NEVER_KEY)) return; }catch(e){}
   const bar = document.getElementById('pwaBar');
   if (!bar) return;
   const m = document.getElementById('pwaMsg');
   const y = document.getElementById('pwaYes');
   const n = document.getElementById('pwaNo');
+  const never = document.getElementById('pwaNever');
   if (m) m.textContent = L().ui.pwaMsg;
   if (y) y.textContent = L().ui.pwaYes;
   if (n) n.textContent = L().ui.pwaNo;
+  if (never) never.textContent = L().ui.pwaNever;
   bar.classList.remove('hidden');
 }
 (function wirePwa(){
   const y = document.getElementById('pwaYes');
   const n = document.getElementById('pwaNo');
-  if (y && y.addEventListener) y.addEventListener('click', () => {
-    if (deferredPrompt && deferredPrompt.prompt) deferredPrompt.prompt();
+  const never = document.getElementById('pwaNever');
+  if (y && y.addEventListener) y.addEventListener('click', async () => {
+    const promptEvent = deferredPrompt;
     deferredPrompt = null;
-    dismissPwa();
+    dismissPwa(false);
+    if (!promptEvent || !promptEvent.prompt) return;
+    try{
+      promptEvent.prompt();
+      if (promptEvent.userChoice) await promptEvent.userChoice;
+      // 原生安裝視窗若取消，只結束本次提示；不記為永久拒絕。
+    }catch(e){}
   });
-  if (n && n.addEventListener) n.addEventListener('click', dismissPwa);
+  if (n && n.addEventListener) n.addEventListener('click', () => dismissPwa(false));
+  if (never && never.addEventListener) never.addEventListener('click', () => dismissPwa(true));
 })();
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  dismissPwa(false);
+});
 
 /* ── Service Worker 快取命中統計 ──────────────────── */
 let cHit = 0, cMiss = 0;

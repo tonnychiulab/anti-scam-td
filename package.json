@@ -1,0 +1,12 @@
+{
+  "name": "anti-scam-td",
+  "version": "2.0.2",
+  "private": true,
+  "description": "Zero-dependency release checks for Scam Maze Defense",
+  "scripts": {
+    "test": "node --test tests/release.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

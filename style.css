@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════
    防詐迷宮 SCAM MAZE DEFENSE — 像素風樣式
-   英文字型：Press Start 2P／中文字型：Cubic 11
+   使用本機／系統字型，不連線下載外部字型
    ═══════════════════════════════════════════════ */
 :root{
   --bg:#1b1b2f;        --bg2:#24243e;
@@ -8,8 +8,8 @@
   --gold:#ffd166;      --red:#ef476f;
   --green:#26a269;     --blue:#3584e4;
   --yellow:#e5a50a;
-  --font-en:'Press Start 2P';
-  --font-zh:'Cubic 11';
+  --font-en:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono';
+  --font-zh:'Microsoft JhengHei','PingFang TC','Noto Sans TC',system-ui;
   --px:3px; /* 像素邊框厚度 */
 }
 *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
@@ -26,6 +26,23 @@ body{
 }
 .zh, .how-list, .tagline, .tn, .quiz-msg, .board-note, input, .tm-name{font-family:var(--font-zh),var(--font-en),sans-serif;}
 .hidden{display:none !important;}
+.sr-only{
+  position:absolute !important;
+  width:1px; height:1px;
+  padding:0; margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+
+/* 鍵盤操作時保留明確焦點，不以滑鼠點擊干擾視覺。 */
+.pixel-btn:focus-visible,
+input:focus-visible,
+#cv:focus-visible{
+  outline:4px solid var(--gold);
+  outline-offset:4px;
+}
 
 /* ── 像素按鈕 ─────────────────────────── */
 .pixel-btn{
@@ -43,8 +60,8 @@ body{
 }
 .pixel-btn:hover{filter:brightness(1.15);}
 .pixel-btn:active{transform:translate(3px,3px); box-shadow:1px 1px 0 #000;}
-.pixel-btn.primary{background:var(--green);}
-.pixel-btn.danger{background:var(--red);}
+.pixel-btn.primary{background:var(--green); color:#1b1b2f;}
+.pixel-btn.danger{background:var(--red); color:#1b1b2f;}
 .pixel-btn.big{font-size:22px; padding:16px 26px;}
 .pixel-btn.mini{font-size:14px; padding:6px 10px;}
 .pixel-btn .icn{width:26px; height:26px; image-rendering:pixelated;}
@@ -113,7 +130,7 @@ body{
 .sup-btn .cd{font-size:11px; color:var(--gold);}
 .sup-btn.locked{filter:grayscale(1) brightness(.55);}
 .sup-btn.ready{border-color:var(--gold); animation:supPulse 1.2s steps(2) infinite;}
-.sup-btn.aiming{background:var(--red); border-color:#fff; animation:supAim .5s steps(2) infinite;}
+.sup-btn.aiming{background:var(--red); color:#1b1b2f; border-color:#fff; animation:supAim .5s steps(2) infinite;}
 @keyframes supPulse{50%{box-shadow:0 0 0 3px var(--gold), 4px 4px 0 #000;}}
 @keyframes supAim{50%{filter:brightness(1.5);}}
 
@@ -382,7 +399,7 @@ body[data-layout="mland"] .wave-btn, body[data-layout="mport"] .wave-btn{
 .pwa-bar{
   position:fixed; left:50%; transform:translateX(-50%);
   bottom:calc(12px + env(safe-area-inset-bottom)); z-index:80;
-  display:flex; gap:10px; align-items:center;
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:center;
   background:var(--bg2); border:3px solid var(--gold);
   box-shadow:5px 5px 0 #000; padding:10px 14px;
   max-width:94vw;
