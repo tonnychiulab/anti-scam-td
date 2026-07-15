@@ -408,6 +408,7 @@ body[data-layout="mland"] .wave-btn, body[data-layout="mport"] .wave-btn{
   padding:10px 10px calc(10px + env(safe-area-inset-bottom));
   animation:bmIn .2s steps(3);
 }
+.bm-error{min-height:1.35em; color:#ff9aa2; font:700 13px/1.35 var(--font-zh); margin:3px 0 5px;}
 @keyframes bmIn{from{transform:translateY(40%);} to{transform:translateY(0);}}
 .bm-title{
   font-family:var(--font-zh); font-size:15px; color:var(--gold);
@@ -491,3 +492,4 @@ body.quality-minimum .sup-btn.ready, body.quality-minimum .danger-edge{animation
   max-width:94vw;
 }
 .pwa-msg{font-family:var(--font-zh); font-size:15px; line-height:1.5;}
+.update-bar{border-color:#7fd7ff; z-index:81;}

@@ -39,7 +39,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.1.0</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.1.1</span></p>
   </div>
 </div>
 
@@ -112,13 +112,14 @@
   </main>
 
   <!-- 點地建造面板（手機 bottom-sheet；桌機不啟用） -->
-  <div id="buildMenu" class="build-menu hidden" role="dialog" aria-labelledby="bmTitle">
+  <div id="buildMenu" class="build-menu hidden" role="dialog" aria-labelledby="bmTitle" aria-describedby="bmPreview bmError">
     <div class="bm-title" id="bmTitle">🔨 這格要蓋哪座防詐塔？</div>
     <div id="bmPreview" class="bm-preview"></div>
+    <div id="bmError" class="bm-error" role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="bm-list" id="bmList"></div>
     <div class="bm-actions">
       <button id="bmOk" class="pixel-btn primary" disabled>✓ 建造</button>
-      <button id="bmNo" class="pixel-btn danger">✗</button>
+      <button id="bmNo" class="pixel-btn danger" aria-label="取消建造">✗</button>
     </div>
   </div>
 
@@ -212,6 +213,7 @@
     <label class="more-check"><input id="reduceMotion" type="checkbox"> <span id="reduceMotionLbl">減少動態效果</span></label>
     <label class="more-check"><input id="reduceFlash" type="checkbox"> <span id="reduceFlashLbl">減少閃光</span></label>
     <div id="qualityStatus" class="quality-status" role="status" aria-live="polite"></div>
+    <button id="btnHowMore" class="pixel-btn more-wide">玩法說明</button>
     <button id="btnMoreClose" class="pixel-btn primary more-wide">返回遊戲</button>
   </div>
 </div>
@@ -309,6 +311,12 @@
   <button id="pwaYes" class="pixel-btn mini primary">安裝</button>
   <button id="pwaNo" class="pixel-btn mini">之後再說</button>
   <button id="pwaNever" class="pixel-btn mini danger">不再提示</button>
+</div>
+
+<!-- 新 Service Worker 接管後，由玩家決定安全的重載時機。 -->
+<div id="pwaUpdateBar" class="pwa-bar update-bar hidden" role="status" aria-live="polite" aria-atomic="true">
+  <span id="pwaUpdateMsg" class="pwa-msg">已有新版本可用。</span>
+  <button id="pwaUpdateNow" class="pixel-btn mini primary">立即更新</button>
 </div>
 
 <div id="cacheStat" title="版本與靜態資源快取命中率（Service Worker）">CACHE --</div>
