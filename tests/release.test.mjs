@@ -15,6 +15,7 @@ const i18nSource = readText('i18n.js');
 const htmlSource = readText('index.html');
 const swSource = readText('sw.js');
 const styleSource = readText('style.css');
+const securityI18nSource = readText('docs/SECURITY-I18N.md');
 
 function literalConst(source, name) {
   const match = source.match(new RegExp(`\\b(?:const|let)\\s+${name}\\s*=\\s*(['\"])([^'\"]+)\\1`));
@@ -366,8 +367,11 @@ test('leaderboard sanitization always returns a small list of finite numbers', (
     "const LB_KEY = 'test-board';",
     `const MAX_LEVEL = ${maxLevel};`,
     'const MAX_BOARD_SCORE = Number.MAX_SAFE_INTEGER;',
+    extractFunction(gameSource, 'sanitizeBoardInteger'),
+    extractFunction(gameSource, 'sanitizeBoardEntry'),
     extractFunction(gameSource, 'loadBoard'),
     'globalThis.__loadBoard__ = loadBoard;',
+    'globalThis.__sanitizeBoardEntry__ = sanitizeBoardEntry;',
   ].join('\n'), context, { filename: 'leaderboard.test.js', timeout: 1_000 });
 
   const rows = context.__loadBoard__();
@@ -377,6 +381,58 @@ test('leaderboard sanitization always returns a small list of finite numbers', (
     assert.ok(Number.isFinite(row.lv) && row.lv >= 1 && row.lv <= maxLevel && Number.isInteger(row.lv), '關卡必須是範圍內有限整數');
     assert.ok(Number.isFinite(row.d) && Number.isInteger(row.d), '時間戳必須是有限整數');
     assert.ok(typeof row.n === 'string' && row.n.length <= 10, '玩家代號必須是至多 10 字的字串');
+  }
+
+  const nonFinite = context.__sanitizeBoardEntry__('player', Infinity, NaN, Infinity);
+  assert.deepEqual({ ...nonFinite }, { n:'player', s:0, lv:1, d:0 }, '寫入前必須消毒非有限數值');
+  const bounded = context.__sanitizeBoardEntry__('player', -42, maxLevel + 99, -1);
+  assert.deepEqual({ ...bounded }, { n:'player', s:0, lv:maxLevel, d:0 }, '寫入前必須套用排行榜範圍');
+  assert.match(gameSource, /list\.push\(sanitizeBoardEntry\(name,\s*S\.score,\s*S\.level,\s*Date\.now\(\)\)\)/, '儲存排行榜時必須先消毒整筆資料');
+});
+
+test('v2.2.1 dynamic HTML sinks escape plain locale strings', () => {
+  const buildMenu = extractFunction(gameSource, 'renderBuildMenu');
+  const board = extractFunction(gameSource, 'renderBoard');
+  const gameOver = extractFunction(gameSource, 'gameOver');
+  assert.match(buildMenu, /towerName\s*=\s*escapeHtml\(L\(\)\.towers\[o\.i\]\)/, '建塔選單的塔名必須 HTML escape');
+  assert.match(board, /escapeHtml\(L\(\)\.ui\.boardEmpty\)/, '排行榜空白訊息必須 HTML escape');
+  assert.match(board, /escapeHtml\(L\(\)\.ui\.levelTag\)/, '排行榜關卡標籤必須 HTML escape');
+  assert.match(gameOver, /t:escapeHtml\(L\(\)\.ui\.tip165\)/, '結算模板的純文字提示必須 HTML escape');
+
+  const context = Object.create(null);
+  const escapeHtmlSource = sourceBetween(gameSource, 'function escapeHtml', "$('btnSaveScore')");
+  vm.runInNewContext(`${escapeHtmlSource}\n;globalThis.__escapeHtml__ = escapeHtml;`, context);
+  assert.equal(context.__escapeHtml__('</span><img src=x onerror=alert(1)>'), '&lt;/span&gt;&lt;img src=x onerror=alert(1)&gt;');
+});
+
+test('v2.2.1 documents the trusted-HTML locale boundary', () => {
+  const documentedFields = ['ui.tagline', 'ui.credit', 'ui.howList[]', 'ui.loseComfort', 'ui.endWin', 'ui.endLose', 'ui.endStats'];
+  for (const field of documentedFields) {
+    assert.ok(securityI18nSource.includes(field), `安全政策缺少 ${field}`);
+  }
+  assert.match(securityI18nSource, /innerHTML/);
+  assert.match(securityI18nSource, /textContent/);
+  assert.match(securityI18nSource, /javascript:/i);
+  assert.match(securityI18nSource, /event handler/i);
+
+  const trustedPaths = new Set(['ui.tagline', 'ui.credit', 'ui.howList', 'ui.loseComfort', 'ui.endWin', 'ui.endLose', 'ui.endStats']);
+  const safeTag = /^(?:<br>|<\/?b>|<span class="en-sm">|<\/span>)$/;
+  const i18n = loadI18n();
+  for (const locale of ['zh', 'en', 'id', 'vi']) {
+    const walk = (value, field) => {
+      if (trustedPaths.has(field)) {
+        const strings = Array.isArray(value) ? value : [value];
+        for (const html of strings) {
+          assert.doesNotMatch(html, /(?:javascript|data):|\bon\w+\s*=|<\s*\/?\s*(?:script|iframe|object|embed|form|style)\b/i, `${locale}.${field} 含危險 HTML`);
+          for (const tag of html.match(/<[^>]+>/g) || []) assert.match(tag, safeTag, `${locale}.${field} 含未允許標籤：${tag}`);
+        }
+        return;
+      }
+      if (Array.isArray(value)) return value.forEach((item, index) => walk(item, `${field}[${index}]`));
+      if (value && typeof value === 'object') return Object.entries(value).forEach(([key, item]) => walk(item, field ? `${field}.${key}` : key));
+      if (typeof value === 'string') assert.doesNotMatch(value, /<\s*\/?\s*[a-z][^>]*>/i, `${locale}.${field} 必須維持純文字`);
+    };
+    walk(i18n[locale], '');
   }
 });
 
@@ -913,6 +969,42 @@ test('service worker isolates its own caches and never ignores request queries',
   assert.match(swSource, /\bcache\.match\s*\(\s*request\s*\)/, '應以完整 request 在目前版本 cache 精確查詢');
   assert.match(swSource, /url\.origin\s*!==\s*self\.location\.origin/, 'fetch 應略過跨來源請求');
   assert.match(swSource, /\bresponse\.ok\b|\bres\.ok\b/, '只有成功回應可寫入 cache');
+});
+
+test('v2.2.1 service worker precache survives an individual asset failure', async () => {
+  const handlers = Object.create(null);
+  const added = [];
+  const warnings = [];
+  let skipped = 0;
+  const cache = {
+    async add(asset) {
+      added.push(asset);
+      if (asset === './game.js') throw new Error('simulated asset failure');
+    },
+  };
+  const context = {
+    URL,
+    Response:{ error:() => ({tag:'error'}) },
+    fetch:async () => ({ok:true, clone(){ return this; }}),
+    console:{ warn(...args){ warnings.push(args); } },
+    caches:{ async open(){ return cache; }, async keys(){ return []; } },
+    self:{
+      location:{origin:'https://example.test'}, registration:{scope:'https://example.test/game/'},
+      addEventListener(type, handler){ handlers[type] = handler; },
+      async skipWaiting(){ skipped++; },
+      clients:{ async claim(){}, async matchAll(){ return []; } },
+    },
+  };
+  vm.runInNewContext(swSource, context, {filename:'sw-install.test.js', timeout:1_000});
+  let installPromise;
+  handlers.install({waitUntil(value){ installPromise = value; }});
+  await installPromise;
+
+  assert.equal(added.length, 9, '每個 app-shell 資源都必須各自嘗試快取');
+  assert.ok(added.includes('./game.js'));
+  assert.equal(skipped, 1, '單一檔案失敗後仍應完成安裝並接管新版');
+  assert.equal(warnings.length, 1, '部分快取失敗時應留下診斷警告');
+  assert.doesNotMatch(swSource, /cache\.addAll\s*\(/, '不可再用單一失敗即整批拒絕的 addAll');
 });
 
 test('v2.1.1 service worker core assets are network-first with an offline cache fallback', async () => {
