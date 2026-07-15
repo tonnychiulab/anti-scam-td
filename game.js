@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.2.0';
+const APP_VERSION = 'v2.2.1';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -1229,7 +1229,7 @@ function gameOver(win){
   }
   document.getElementById('endStats').innerHTML =
     (win ? L().ui.endWin : L().ui.endLose) +
-    fmt(L().ui.endStats, {lv:S.level, k:S.kills, s:S.score, t:L().ui.tip165});
+    fmt(L().ui.endStats, {lv:S.level, k:S.kills, s:S.score, t:escapeHtml(L().ui.tip165)});
   document.getElementById('btnSaveScore').disabled = false;
   document.getElementById('btnSaveScore').textContent = L().ui.btnSave;
   show('endScreen');
@@ -2217,9 +2217,11 @@ function renderBuildMenu(){
       const spec = TOWERS[o.i];
       const cls = 'bp-item pixel-btn' + (o.afford ? '' : ' poor') + (bp.ti === o.i ? ' sel' : '');
       const disabled = o.afford ? '' : ' disabled aria-disabled="true"';
+      const glyph = escapeHtml(spec.glyph === '165' ? '165' : spec.glyph);
+      const towerName = escapeHtml(L().towers[o.i]);
       return `<button type="button" class="${cls}" data-bp="${o.i}" aria-pressed="${bp.ti === o.i}"${disabled}>` +
-             `<span class="bg">${spec.glyph === '165' ? '165' : spec.glyph}</span>` +
-             `<span class="bn">${L().towers[o.i]}</span>` +
+             `<span class="bg">${glyph}</span>` +
+             `<span class="bn">${towerName}</span>` +
              `<span class="bc">🪙${o.cost}</span></button>`;
     }).join('');
   }
@@ -2683,6 +2685,20 @@ if (dangerEdgeButton) dangerEdgeButton.addEventListener('click', () => {
 /* ── 排行榜（localStorage 匿名） ──────────────────── */
 const LB_KEY = 'asmd_board_v1';
 const MAX_BOARD_SCORE = Number.MAX_SAFE_INTEGER;
+function sanitizeBoardInteger(value, min, max, fallback = min){
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? Math.min(max, Math.max(min, Math.floor(number)))
+    : fallback;
+}
+function sanitizeBoardEntry(name, score, level, date){
+  return {
+    n: String(name || '匿名').slice(0, 10),
+    s: sanitizeBoardInteger(score, 0, MAX_BOARD_SCORE, 0),
+    lv: sanitizeBoardInteger(level, 1, MAX_LEVEL, 1),
+    d: sanitizeBoardInteger(date, 0, Number.MAX_SAFE_INTEGER, 0),
+  };
+}
 function loadBoard(){
   // 完整性防護：localStorage 可能被手動竄改，載入時做型別消毒
   try{
@@ -2694,22 +2710,17 @@ function loadBoard(){
       return Number.isFinite(score) && score >= 0 && score <= MAX_BOARD_SCORE &&
         Number.isFinite(level);
     })
-      .map(r => ({
-        n: String(r.n || '匿名').slice(0, 10),
-        s: Math.floor(Number(r.s)),
-        lv: Math.min(MAX_LEVEL, Math.max(1, Math.floor(Number(r.lv)))),
-        d: Number.isFinite(Number(r.d)) ? Math.floor(Number(r.d)) : 0,
-      }))
+      .map(r => sanitizeBoardEntry(r.n, r.s, r.lv, r.d))
       .slice(0, 10);
   }catch(e){ return []; }
 }
 function renderBoard(){
   const list = loadBoard();
   const ol = $('boardList');
-  ol.innerHTML = list.length ? '' : `<li>${L().ui.boardEmpty}</li>`;
+  ol.innerHTML = list.length ? '' : `<li>${escapeHtml(L().ui.boardEmpty)}</li>`;
   list.forEach(r => {
     const li = document.createElement('li');
-    li.innerHTML = `<b>${escapeHtml(r.n)}</b>　${L().ui.levelTag}${r.lv}<span class="pt">⭐${r.s}</span>`;
+    li.innerHTML = `<b>${escapeHtml(r.n)}</b>　${escapeHtml(L().ui.levelTag)}${r.lv}<span class="pt">⭐${r.s}</span>`;
     ol.appendChild(li);
   });
 }
@@ -2717,7 +2728,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;',
 $('btnSaveScore').addEventListener('click', () => {
   const name = ($('playerName').value.trim() || L().ui.namePh).slice(0,10);
   const list = loadBoard();
-  list.push({ n:name, s:S.score, lv:S.level, d:Date.now() });
+  list.push(sanitizeBoardEntry(name, S.score, S.level, Date.now()));
   list.sort((a,b) => b.s - a.s);
   let saved = true;
   try { localStorage.setItem(LB_KEY, JSON.stringify(list.slice(0,10))); }

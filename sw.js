@@ -2,7 +2,7 @@
 'use strict';
 
 const CACHE_PREFIX = 'asmd-';
-const CACHE = `${CACHE_PREFIX}v2.2.0`;
+const CACHE = `${CACHE_PREFIX}v2.2.1`;
 const ASSETS = [
   './',
   './index.html',
@@ -15,12 +15,16 @@ const ASSETS = [
   './icons/icon-maskable-512.png'
 ];
 
+async function precacheShell(){
+  const cache = await caches.open(CACHE);
+  const results = await Promise.allSettled(ASSETS.map(asset => cache.add(asset)));
+  const failed = results.flatMap((result, index) => result.status === 'rejected' ? [ASSETS[index]] : []);
+  if (failed.length) console.warn('[asmd] Some app-shell assets could not be precached:', failed);
+  await self.skipWaiting();
+}
+
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then(cache => cache.addAll(ASSETS))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(precacheShell());
 });
 
 self.addEventListener('activate', event => {
