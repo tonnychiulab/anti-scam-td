@@ -169,9 +169,9 @@ input:focus-visible,
 }
 @keyframes bannerPop{from{transform:translateX(-50%) scale(.3);} to{transform:translateX(-50%) scale(1);}}
 .score-toast{
-  position:absolute; top:62px; left:50%; transform:translateX(-50%); z-index:7;
+  position:static; flex:0 0 auto; white-space:nowrap;
   color:#1b1b2f; background:var(--gold); border:2px solid #000; box-shadow:3px 3px 0 #000;
-  padding:6px 12px; font-size:16px; pointer-events:none;
+  padding:3px 7px; font-size:13px; line-height:1.2; pointer-events:none;
 }
 .danger-edge{
   position:absolute; z-index:12; min-width:52px; min-height:44px; padding:7px 9px;
