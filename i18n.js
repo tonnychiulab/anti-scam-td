@@ -14,7 +14,7 @@ zh: {
     tagline:'詐騙大軍正衝向民眾的錢包——<br>蓋出你的防詐迷宮，一關都別放過！',
     lblName:'玩家代號', namePh:'匿名勇者',
     btnStart:'開始防詐 START', btnHow:'玩法說明', btnBoard:'排行榜',
-    credit:'本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.1</span>',
+    credit:'本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.2</span>',
     howTitle:'玩法說明', howGo:'知道了 GO!',
     howList:[
       '🏰 <b>目標：</b>阻止詐騙大軍走出迷宮、碰到「民眾」。共 <b>87 關</b>。',
@@ -140,7 +140,7 @@ en: {
     tagline:'A scam army is marching toward people\'s wallets—<br>build your anti-scam maze and hold every stage!',
     lblName:'Player name', namePh:'Anonymous Hero',
     btnStart:'START DEFENSE', btnHow:'How to Play', btnBoard:'Leaderboard',
-    credit:'Made voluntarily by <b>passionate citizens of Taiwan</b> as a public-good project.<br><b>NOT</b> an official game of the 165 hotline, the police, or any government agency.<br>Educational content only—never trust links claiming to be this game.<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.1</span>',
+    credit:'Made voluntarily by <b>passionate citizens of Taiwan</b> as a public-good project.<br><b>NOT</b> an official game of the 165 hotline, the police, or any government agency.<br>Educational content only—never trust links claiming to be this game.<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.2</span>',
     howTitle:'How to Play', howGo:'Got it, GO!',
     howList:[
       '🏰 <b>Goal:</b> stop the scam army from reaching the People. <b>87 stages</b> total.',
@@ -266,7 +266,7 @@ id: {
     tagline:'Pasukan penipu sedang menyerbu dompet warga—<br>bangun labirin anti-penipuanmu, jangan lepaskan satu level pun!',
     lblName:'Nama pemain', namePh:'Pahlawan Anonim',
     btnStart:'MULAI MAIN', btnHow:'Cara Bermain', btnBoard:'Papan Peringkat',
-    credit:'Game ini dibuat sukarela oleh <b>warga Taiwan yang peduli</b> sebagai proyek sosial.<br><b>BUKAN</b> game resmi hotline 165, kepolisian, atau lembaga pemerintah mana pun.<br>Konten hanya untuk edukasi—jangan percaya tautan yang mengatasnamakan game ini.<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.1</span>',
+    credit:'Game ini dibuat sukarela oleh <b>warga Taiwan yang peduli</b> sebagai proyek sosial.<br><b>BUKAN</b> game resmi hotline 165, kepolisian, atau lembaga pemerintah mana pun.<br>Konten hanya untuk edukasi—jangan percaya tautan yang mengatasnamakan game ini.<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.2</span>',
     howTitle:'Cara Bermain', howGo:'Mengerti, GO!',
     howList:[
       '🏰 <b>Tujuan:</b> cegah pasukan penipu mencapai Warga. Total <b>87 level</b>.',
@@ -392,7 +392,7 @@ vi: {
     tagline:'Đội quân lừa đảo đang lao về phía ví tiền của người dân—<br>hãy xây mê cung chống lừa đảo, giữ vững từng màn!',
     lblName:'Tên người chơi', namePh:'Anh hùng ẩn danh',
     btnStart:'BẮT ĐẦU', btnHow:'Cách chơi', btnBoard:'Bảng xếp hạng',
-    credit:'Trò chơi do <b>người dân Đài Loan nhiệt huyết</b> tự nguyện làm, là dự án cộng đồng.<br><b>KHÔNG</b> phải trò chơi chính thức của đường dây 165, cảnh sát hay cơ quan nhà nước nào.<br>Nội dung chỉ nhằm giáo dục—đừng tin bất kỳ liên kết nào mạo danh trò chơi này.<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.1</span>',
+    credit:'Trò chơi do <b>người dân Đài Loan nhiệt huyết</b> tự nguyện làm, là dự án cộng đồng.<br><b>KHÔNG</b> phải trò chơi chính thức của đường dây 165, cảnh sát hay cơ quan nhà nước nào.<br>Nội dung chỉ nhằm giáo dục—đừng tin bất kỳ liên kết nào mạo danh trò chơi này.<br><span class="en-sm">Made by citizens, for citizens ・ v2.1.2</span>',
     howTitle:'Cách chơi', howGo:'Hiểu rồi, GO!',
     howList:[
       '🏰 <b>Mục tiêu:</b> chặn đội quân lừa đảo tiếp cận Người dân. Tổng cộng <b>87 màn</b>.',

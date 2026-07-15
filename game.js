@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.1.1';
+const APP_VERSION = 'v2.1.2';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -542,8 +542,9 @@ function hitEnemy(e, dmg, src){
     S.score += scoreGain;
     if (typeof queueScoreGain === 'function') queueScoreGain(scoreGain);
     S.hp = Math.min(HP_CAP, S.hp + 1);        // ★ 識別詐騙 → 血量+1
+    // 擊破文字是次要資訊：先加入、往上避開；爆破粒子後加入並蓋在文字上方。
+    S.fx.push({ txt:fmt(L().ui.killFloat, {name:L().enemies[e.ti]}), x:e.x, y:e.y-24, life:.65 });
     burst(e.x, e.y, t.c1, t.boss?26:10);
-    S.fx.push({ txt:fmt(L().ui.killFloat, {name:L().enemies[e.ti]}), x:e.x, y:e.y-16, life:.9 });
     sfx(90, .08, 'sawtooth');
     tryConvert(e);
   }
@@ -1417,11 +1418,11 @@ function draw(){
       continue;
     }
     if (f.txt){
-      ctx.globalAlpha = Math.max(0, f.life);
+      ctx.globalAlpha = Math.min(1, Math.max(0, f.life * 2));
       ctx.fillStyle = '#ffffff';
-      ctx.font = "12px 'Cubic 11','Press Start 2P',sans-serif";
+      ctx.font = "10px 'Cubic 11','Press Start 2P',sans-serif";
       ctx.textAlign = 'center';
-      ctx.fillText(f.txt, f.x, f.y);
+      ctx.fillText(f.txt, f.x, f.y, CELL * 2);
       continue;
     }
     ctx.globalAlpha = Math.max(0, f.life*2);

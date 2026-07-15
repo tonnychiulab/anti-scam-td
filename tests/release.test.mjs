@@ -1222,6 +1222,28 @@ test('v2.1 automatic visual quality obeys sustained thresholds and one downgrade
   assert.match(extractFunction(gameSource, 'maybeRaiseAutoQuality'), /S\.phase\s*!==\s*['"]setup['"]/, '升級畫質只能發生在波次之間');
 });
 
+test('v2.1.2 score feedback stays outside combat and explosions outrank kill labels', () => {
+  const hud = sourceBetween(htmlSource, '<div class="hud-secondary">', '</header>');
+  const stage = sourceBetween(htmlSource, '<main id="stage">', '</main>');
+  assert.match(hud, /id=["']scoreToast["']/, '短暫分數必須位於 HUD 第二列');
+  assert.doesNotMatch(stage, /id=["']scoreToast["']/, '短暫分數不可覆蓋戰場');
+
+  const scoreCss = styleSource.match(/\.score-toast\{([^}]*)\}/s);
+  assert.ok(scoreCss, '缺少短暫分數樣式');
+  assert.match(scoreCss[1], /position:static/, '短暫分數不可用絕對定位壓在棋盤上');
+  assert.match(scoreCss[1], /font-size:13px/, '短暫分數應縮小為次要回饋');
+
+  const hit = extractFunction(gameSource, 'hitEnemy');
+  const labelAt = hit.indexOf('S.fx.push({ txt:');
+  const burstAt = hit.indexOf('burst(e.x, e.y, t.c1', labelAt);
+  assert.ok(labelAt >= 0 && burstAt > labelAt, '擊破文字必須先加入，讓後加入的爆破粒子畫在上層');
+  assert.match(hit, /y:e\.y-24,\s*life:\.65/, '擊破文字應上移並提早淡出');
+
+  const drawSource = extractFunction(gameSource, 'draw');
+  assert.match(drawSource, /10px [^;]+;\s*ctx\.textAlign/, '擊破文字應縮小');
+  assert.match(drawSource, /fillText\(f\.txt, f\.x, f\.y, CELL \* 2\)/, '擊破文字寬度必須限制在兩格內');
+});
+
 test('v2.1 mobile HUD, More pause restoration, score placement, and destructive guards stay intact', () => {
   for (const id of ['waveInfo','btnMore','moreScreen','btnMuteMore','btnHowMore','qualityMode','reduceMotion','reduceFlash','scoreToast','dangerEdge','supportConfirm','pwaUpdateBar','pwaUpdateNow']) {
     assert.match(htmlSource, new RegExp(`id=['"]${id}['"]`), `缺少 v2.1 介面：${id}`);

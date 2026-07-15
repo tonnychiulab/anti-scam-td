@@ -39,7 +39,7 @@
       <button id="btnHow" class="pixel-btn">玩法說明</button>
       <button id="btnBoard" class="pixel-btn">排行榜</button>
     </div>
-    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.1.1</span></p>
+    <p class="credit" id="creditTxt">本遊戲由<b>全台熱血民眾</b>自發製作，為民間公益作品，<br><b>非</b> 165 專線、警政署或任何政府機關之官方遊戲。<br>防詐知識參考公開宣導資料，僅供教育，請勿誤信任何遊戲外冒名連結。<br><span class="en-sm">Made by citizens, for citizens. Open Web Tech: HTML + CSS + JS only ・ v2.1.2</span></p>
   </div>
 </div>
 
@@ -73,6 +73,7 @@
     </div>
     <div class="hud-secondary">
       <div id="waveInfo" class="wave-info" aria-live="off">準備第 1 波</div>
+      <div id="scoreToast" class="score-toast hidden" aria-hidden="true">⭐ +0</div>
       <div class="hud-btns">
         <button id="btnSpeed" class="pixel-btn mini" title="遊戲速度">▶×1</button>
         <button id="btnPause" class="pixel-btn mini" title="暫停">❚❚</button>
@@ -101,7 +102,6 @@
     <div id="gameStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="dangerAlert" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
     <div id="waveBanner" class="wave-banner hidden"></div>
-    <div id="scoreToast" class="score-toast hidden" aria-hidden="true">⭐ +0</div>
     <button id="dangerEdge" class="danger-edge hidden" type="button" aria-label="查看接近出口的敵人">⚠ ×0</button>
     <!-- 塔操作面板（在 #stage 內：position 計算才正確） -->
     <div id="towerMenu" class="tower-menu hidden" role="group" aria-labelledby="tmName">
