@@ -1,8 +1,8 @@
-/* Anti-Scam Defense Service Worker: app-shell precache + stale-while-revalidate. */
+/* Anti-Scam Defense Service Worker: network-first navigation + cached app shell. */
 'use strict';
 
 const CACHE_PREFIX = 'asmd-';
-const CACHE = `${CACHE_PREFIX}v2.1.0`;
+const CACHE = `${CACHE_PREFIX}v2.1.1`;
 const ASSETS = [
   './',
   './index.html',
@@ -33,6 +33,10 @@ self.addEventListener('activate', event => {
       ))
       .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 async function report(hit) {
@@ -69,6 +73,29 @@ self.addEventListener('fetch', event => {
   // Let the browser handle mutations and third-party resources without caching them.
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
+  // Documents, scripts and styles must move together. Network-first prevents a
+  // new HTML document from being paired with stale JS/CSS from the old worker.
+  const networkFirst = request.mode === 'navigate' || request.destination === 'script' || request.destination === 'style';
+  if (networkFirst) {
+    event.respondWith((async () => {
+      const response = await fetchAndCache(request);
+      if (response) {
+        void report(false);
+        return response;
+      }
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(request);
+      if (cached) {
+        void report(true);
+        return cached;
+      }
+      const fallbackUrl = new URL('./index.html', self.registration.scope);
+      const fallback = await cache.match(fallbackUrl.href);
+      return fallback || Response.error();
+    })());
+    return;
+  }
+
   const cachePromise = caches.open(CACHE);
   const cachedPromise = cachePromise.then(cache => cache.match(request));
   const refreshPromise = cachedPromise.then(() => fetchAndCache(request));
@@ -86,13 +113,6 @@ self.addEventListener('fetch', event => {
     void report(false);
     const response = await refreshPromise;
     if (response) return response;
-
-    if (request.mode === 'navigate') {
-      const cache = await cachePromise;
-      const fallbackUrl = new URL('./index.html', self.registration.scope);
-      const fallback = await cache.match(fallbackUrl.href);
-      if (fallback) return fallback;
-    }
 
     return Response.error();
   })());

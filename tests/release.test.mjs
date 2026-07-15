@@ -135,9 +135,12 @@ function createPointerHarness({ scale = 2, towers = [] } = {}) {
   const timers = new Map();
   let clock = 0;
   let resets = 0;
+  let buildCloses = 0;
+  let draws = 0;
   let timerId = 0;
+  const supportCancels = [];
   const context = {
-    S: { over: false, paused: false, towers },
+    S: { over: false, paused: false, towers, coins:120 },
     runGen: 1,
     selSup: -1,
     selShop: -1,
@@ -158,7 +161,10 @@ function createPointerHarness({ scale = 2, towers = [] } = {}) {
     internalToWorld: (x, y) => [x, y],
     clampView() {},
     resetView() { resets++; context.view.scale = 1; context.view.ox = 0; context.view.oy = 0; },
-    draw() {},
+    draw() { draws++; },
+    finishRouteGuide() {},
+    cancelSupportAction(update, restoreBuild) { supportCancels.push([update, restoreBuild]); },
+    closeBuildMenu() { buildCloses++; context.bp.open = false; },
     performance: { now: () => clock },
     setTimeout(callback) { const id = ++timerId; timers.set(id, callback); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -187,6 +193,11 @@ function createPointerHarness({ scale = 2, towers = [] } = {}) {
     event,
     setClock(value) { clock = value; },
     resetCount() { return resets; },
+    buildCloseCount() { return buildCloses; },
+    drawCount() { return draws; },
+    supportCancels,
+    state:context.S,
+    view:context.view,
     flushTimers() {
       const callbacks = [...timers.values()];
       timers.clear();
@@ -688,6 +699,27 @@ test('the animation loop never steals focus from PC controls', () => {
   assert.ok((controls.match(/focusBoard\(\)/g) || []).length >= 2, '選塔與支援後應明確回到棋盤');
 });
 
+test('the board cell focus ring appears for keyboard focus, not mouse-driven focus', () => {
+  const cv = { matches: selector => selector === ':focus-visible' && cv.focusVisible };
+  const context = {
+    kbActive: true,
+    cv,
+    document: { activeElement: cv },
+  };
+  vm.runInNewContext(
+    `${extractFunction(gameSource, 'boardKeyboardFocusVisible')}\n` +
+    'globalThis.__focusVisible__ = boardKeyboardFocusVisible;',
+    context,
+  );
+
+  cv.focusVisible = false;
+  assert.equal(context.__focusVisible__(), false, '滑鼠選塔後不應在左上角顯示鍵盤格線');
+  cv.focusVisible = true;
+  assert.equal(context.__focusVisible__(), true, 'Tab 或方向鍵聚焦棋盤時仍應保留格線');
+  context.document.activeElement = null;
+  assert.equal(context.__focusVisible__(), false, '棋盤失焦後不應留下格線');
+});
+
 test('pointer cancellation never commits a tap', () => {
   const harness = createPointerHarness();
   assert.equal(typeof harness.handlers.pointerdown, 'function');
@@ -752,6 +784,28 @@ test('double-tap reset requires short time, short distance, zoom, and an unoccup
   fullView.handlers.pointerdown(fullView.event(1, 20, 20));
   fullView.handlers.pointerup(fullView.event(1, 20, 20));
   assert.equal(fullView.taps.length, 1, '全圖倍率的單擊不應等待雙擊計時器');
+});
+
+test('v2.1.1 mobile gestures close build preview and pan a zoomed board without tapping', () => {
+  const pinch = createPointerHarness({ scale:2 });
+  pinch.handlers.pointerdown(pinch.event(1, 30, 30, 0, 'touch'));
+  pinch.handlers.pointerdown(pinch.event(2, 90, 30, 0, 'touch'));
+  pinch.handlers.pointerup(pinch.event(2, 90, 30, 0, 'touch'));
+  pinch.handlers.pointerup(pinch.event(1, 30, 30, 0, 'touch'));
+  assert.equal(pinch.buildCloseCount(), 1, '開始雙指手勢時應關閉建塔預覽');
+  assert.deepEqual(pinch.supportCancels, [[false, false]], '雙指手勢應取消支援且不得還原暫存建塔面板');
+  assert.equal(pinch.state.coins, 120, '取消預覽不可扣點');
+  assert.deepEqual(pinch.taps, [], '雙指手勢不可送出 tap');
+
+  const pan = createPointerHarness({ scale:2 });
+  pan.handlers.pointerdown(pan.event(3, 20, 25, 0, 'touch'));
+  const move = pan.event(3, 85, 70, 0, 'touch');
+  pan.handlers.pointermove(move);
+  pan.handlers.pointerup(pan.event(3, 85, 70, 0, 'touch'));
+  assert.equal(move.defaultPrevented, true, '縮放後單指平移應阻止瀏覽器原生手勢');
+  assert.deepEqual([pan.view.ox, pan.view.oy], [65, 45]);
+  assert.deepEqual(pan.taps, [], '單指平移不可在放開時誤送 tap');
+  assert.ok(pan.drawCount() > 0, '平移時應重畫棋盤');
 });
 
 test('a game-over raised during enemy updates stops the rest of that frame', () => {
@@ -861,6 +915,54 @@ test('service worker isolates its own caches and never ignores request queries',
   assert.match(swSource, /\bresponse\.ok\b|\bres\.ok\b/, '只有成功回應可寫入 cache');
 });
 
+test('v2.1.1 service worker core assets are network-first with an offline cache fallback', async () => {
+  const handlers = Object.create(null);
+  const calls = [];
+  const network = { ok:true, tag:'network', clone(){ return this; } };
+  const cached = { ok:true, tag:'cached', clone(){ return this; } };
+  const cache = {
+    async addAll() {},
+    async put() { calls.push('cache.put'); },
+    async match() { calls.push('cache.match'); return cached; },
+  };
+  const context = {
+    URL,
+    Response:{ error:() => ({tag:'error'}) },
+    caches:{ async open(){ calls.push('cache.open'); return cache; }, async keys(){ return []; } },
+    fetch:async () => { calls.push('fetch'); return network; },
+    self:{
+      location:{origin:'https://example.test'}, registration:{scope:'https://example.test/game/'},
+      addEventListener(type, handler){ handlers[type] = handler; },
+      async skipWaiting(){},
+      clients:{ async claim(){}, async matchAll(){ return []; } },
+    },
+  };
+  vm.runInNewContext(swSource, context, {filename:'sw-navigation.test.js', timeout:1_000});
+  let responsePromise;
+  const onlineRequest = {method:'GET', mode:'navigate', destination:'document', url:'https://example.test/game/'};
+  handlers.fetch({request:onlineRequest, respondWith(value){ responsePromise = value; }});
+  const online = await responsePromise;
+  assert.equal(online.tag, 'network');
+  assert.equal(calls[0], 'fetch', '導覽必須先嘗試網路，而不是先讀舊快取');
+  assert.ok(!calls.includes('cache.match'), '網路成功時不應回傳舊導覽內容');
+
+  calls.length = 0;
+  context.fetch = async () => { calls.push('fetch'); throw new Error('offline'); };
+  const offlineRequest = {method:'GET', mode:'navigate', destination:'document', url:'https://example.test/game/offline'};
+  handlers.fetch({request:offlineRequest, respondWith(value){ responsePromise = value; }});
+  const offline = await responsePromise;
+  assert.equal(offline.tag, 'cached', '離線時應回退目前版本快取');
+  assert.equal(calls[0], 'fetch');
+  assert.ok(calls.includes('cache.match'));
+
+  calls.length = 0;
+  context.fetch = async () => { calls.push('fetch'); return network; };
+  const scriptRequest = {method:'GET', mode:'same-origin', destination:'script', url:'https://example.test/game/game.js'};
+  handlers.fetch({request:scriptRequest, respondWith(value){ responsePromise = value; }});
+  assert.equal((await responsePromise).tag, 'network');
+  assert.equal(calls[0], 'fetch', '核心腳本也必須先走網路，避免 HTML／JS 混版');
+});
+
 test('HTML has no Google Fonts dependency and meta CSP omits unsupported frame-ancestors', () => {
   assert.doesNotMatch(htmlSource, /fonts\.(?:googleapis|gstatic)\.com/i, '離線遊戲不可依賴 Google Fonts');
   const csp = htmlSource.match(/<meta\b[^>]*http-equiv\s*=\s*['\"]Content-Security-Policy['\"][^>]*>/i)?.[0] || '';
@@ -950,7 +1052,7 @@ test('v2.1 danger warning has 80/92 percent thresholds, 75 percent hysteresis, a
     S:state,
     banner(){ notices++; elements.waveBanner.textContent = 'danger'; },
     L:() => ({ui:{dangerAlert:'danger'}}),
-    navigator:{ vibrate(){ vibrations++; } },
+    triggerHaptic(){ vibrations++; },
     document:{ visibilityState:'visible', body:{classList}, getElementById:id => elements[id] || null },
     view:{scale:1,ox:0,oy:0}, W:960, H:576,
     placeDangerEdge(){},
@@ -974,6 +1076,51 @@ test('v2.1 danger warning has 80/92 percent thresholds, 75 percent hysteresis, a
   assert.equal(state.dangerFinal, true, '92% 起應進入最終防線狀態');
 });
 
+test('v2.1.1 reduced-motion and minimum-quality preferences disable haptics', () => {
+  let vibrations = 0;
+  const context = {
+    uxPrefs:{reduceMotion:true}, actualQuality:'full',
+    navigator:{ vibrate(){ vibrations++; } },
+  };
+  vm.runInNewContext(`${extractFunction(gameSource, 'triggerHaptic')}\nglobalThis.__haptic__=triggerHaptic;`, context);
+  assert.equal(context.__haptic__(40), false);
+  assert.equal(vibrations, 0, '減少動態時不可震動');
+  context.uxPrefs.reduceMotion = false;
+  context.actualQuality = 'minimum';
+  assert.equal(context.__haptic__(40), false);
+  assert.equal(vibrations, 0, '最低品質時不可震動');
+  context.actualQuality = 'compact';
+  assert.equal(context.__haptic__(40), true);
+  assert.equal(vibrations, 1, '一般模式仍應保留本波一次輕震');
+});
+
+test('v2.1.1 mute preference safely migrates and persists', () => {
+  let saved = JSON.stringify({quality:'auto', reduceMotion:false, reduceFlash:false, lastStable:'full'});
+  const loadContext = {
+    window:{matchMedia:null},
+    UX_PREF_KEY:'asmd_ux_v21',
+    localStorage:{getItem:() => saved},
+  };
+  vm.runInNewContext([
+    extractFunction(gameSource, 'defaultUxPrefs'),
+    extractFunction(gameSource, 'loadUxPrefs'),
+    'globalThis.__load__=loadUxPrefs;',
+  ].join('\n'), loadContext);
+  assert.equal(loadContext.__load__().muted, false, '舊版偏好沒有 muted 欄位時應安全採用預設值');
+  saved = JSON.stringify({quality:'auto', reduceMotion:false, reduceFlash:false, muted:true, lastStable:'full'});
+  assert.equal(loadContext.__load__().muted, true, '重載時應還原靜音偏好');
+
+  let writes = 0;
+  const toggleContext = {
+    muted:false, uxPrefs:{muted:false},
+    saveUxPrefs(){ writes++; }, syncMuteButtons(){}, applyControlA11y(){},
+  };
+  vm.runInNewContext(`${extractFunction(gameSource, 'toggleMute')}\nglobalThis.__toggle__=toggleMute;`, toggleContext);
+  toggleContext.__toggle__();
+  assert.equal(toggleContext.uxPrefs.muted, true);
+  assert.equal(writes, 1, '每次切換音效都應保存偏好');
+});
+
 test('v2.1 support previews never start cooldown before a valid confirmation', () => {
   const beginSource = extractFunction(gameSource, 'beginSupportAim');
   const targetSource = extractFunction(gameSource, 'setSupportTarget');
@@ -981,7 +1128,8 @@ test('v2.1 support previews never start cooldown before a valid confirmation', (
   assert.doesNotMatch(beginSource, /supCd\s*\[/, '進入瞄準不可開始冷卻');
   assert.doesNotMatch(targetSource, /supCd\s*\[/, '選擇位置不可開始冷卻');
   assert.match(castSource, /S\.supCd\[i\]\s*=\s*sp\.cd/, '只有實際施放才可開始冷卻');
-  assert.match(extractFunction(gameSource, 'startLightCharge'), /500\s*\)/, '手電筒蓄力必須是 500ms');
+  assert.equal(numericConst(gameSource, 'LIGHT_CHARGE_MS'), 500, '手電筒蓄力必須是 500ms');
+  assert.doesNotMatch(extractFunction(gameSource, 'startLightCharge'), /setTimeout\s*\(/, '蓄力不可使用會跨越暫停的牆鐘計時器');
 
   let casts = 0;
   const context = {
@@ -997,6 +1145,57 @@ test('v2.1 support previews never start cooldown before a valid confirmation', (
   assert.equal(casts, 1);
   context.selSup = 1; context.supportAim = {i:1,x:20,y:20}; context.counts = {hits:3,globalHits:3,localHits:0};
   assert.equal(context.__confirm__(), true, '震撼彈即使爆心零命中，只要場上有敵人仍可確認');
+});
+
+test('v2.1.1 tactical-light charge freezes while paused and resumes afterward', () => {
+  let casts = 0;
+  const context = {
+    S:{over:false, paused:false, enemies:[{dead:false}]},
+    lightCharge:{active:true, remainingMs:500, token:1},
+    useSupport(){ casts++; return true; },
+    cancelSupportAction(){ throw new Error('有效敵人仍在時不應取消蓄力'); },
+    Number,
+  };
+  vm.runInNewContext(`${extractFunction(gameSource, 'updateLightCharge')}\nglobalThis.__charge__=updateLightCharge;`, context);
+  context.__charge__(200);
+  assert.equal(context.lightCharge.remainingMs, 300);
+  context.S.paused = true;
+  context.__charge__(2_000);
+  assert.equal(context.lightCharge.remainingMs, 300, '暫停期間不得消耗蓄力時間');
+  assert.equal(casts, 0, '暫停期間不得施放或開始冷卻');
+  context.S.paused = false;
+  context.__charge__(299);
+  assert.equal(casts, 0);
+  context.__charge__(1);
+  assert.equal(casts, 1, '恢復後才可完成剩餘蓄力');
+});
+
+test('v2.1.1 build preview restores after support cancellation and exposes accessible state', () => {
+  const begin = extractFunction(gameSource, 'beginSupportAim');
+  const cancel = extractFunction(gameSource, 'cancelSupportAction');
+  const render = extractFunction(gameSource, 'renderBuildMenu');
+  const confirm = extractFunction(gameSource, 'bpConfirm');
+  assert.match(begin, /suspendBuildMenu\(\)/, '進入支援瞄準應暫存建塔狀態');
+  assert.doesNotMatch(begin, /closeBuildMenu\(\)/, '進入瞄準不可永久清除建塔預覽');
+  assert.match(cancel, /restoreSuspendedBuildMenu\(\)/, '取消支援時應還原建塔預覽');
+  assert.match(render, /aria-pressed/, '建塔選項應暴露目前選取狀態');
+  assert.match(confirm, /showBuildError/, '二次驗證失敗時應保留面板並說明原因');
+  assert.match(htmlSource, /id=['"]buildMenu['"][^>]*aria-describedby=['"][^'"]*bmError/i);
+  assert.match(htmlSource, /id=['"]bmError['"][^>]*role=['"]status['"][^>]*aria-live=['"]polite['"]/i);
+  assert.match(htmlSource, /id=['"]bmNo['"][^>]*aria-label=/i, '取消建造按鈕應有可讀名稱');
+
+  let restores = 0;
+  const context = {
+    lightCharge:{active:true,remainingMs:100,token:4}, selSup:1, supportAim:{i:1}, S:{},
+    document:{getElementById:() => ({classList:{add(){}}})},
+    restoreSuspendedBuildMenu(){ restores++; return true; }, discardSuspendedBuildMenu(){},
+    updateHUD(){}, draw(){},
+  };
+  vm.runInNewContext(`${cancel}\nglobalThis.__cancel__=cancelSupportAction;`, context);
+  assert.equal(context.__cancel__(false), true);
+  assert.equal(restores, 1);
+  assert.equal(context.selSup, -1);
+  assert.equal(context.supportAim, null);
 });
 
 test('v2.1 automatic visual quality obeys sustained thresholds and one downgrade per wave', () => {
@@ -1024,7 +1223,7 @@ test('v2.1 automatic visual quality obeys sustained thresholds and one downgrade
 });
 
 test('v2.1 mobile HUD, More pause restoration, score placement, and destructive guards stay intact', () => {
-  for (const id of ['waveInfo','btnMore','moreScreen','btnMuteMore','qualityMode','reduceMotion','reduceFlash','scoreToast','dangerEdge','supportConfirm']) {
+  for (const id of ['waveInfo','btnMore','moreScreen','btnMuteMore','btnHowMore','qualityMode','reduceMotion','reduceFlash','scoreToast','dangerEdge','supportConfirm','pwaUpdateBar','pwaUpdateNow']) {
     assert.match(htmlSource, new RegExp(`id=['"]${id}['"]`), `缺少 v2.1 介面：${id}`);
   }
   assert.match(styleSource, /body\[data-layout="mport"\]\s+#hudScore\{display:none;\}/, '手機常駐 HUD 不可顯示總分');
@@ -1036,6 +1235,8 @@ test('v2.1 mobile HUD, More pause restoration, score placement, and destructive 
   assert.match(extractFunction(gameSource, 'bpConfirm'), /updateHUD\(\);\s*draw\(\)/, '暫停時確認建塔也必須立即重畫');
   assert.match(extractFunction(gameSource, 'updateHUD'), /refreshTowerMenu\(\)/, '塔面板餘額應隨 HUD 獎勵更新');
   assert.match(extractFunction(gameSource, 'renderBuildMenu'), /disabled aria-disabled/, '買不起的手機建塔選項必須真正停用');
+  assert.match(gameSource, /controllerchange/, '新版 Service Worker 接管後應提供更新交接');
+  assert.match(gameSource, /btnHowMore[^]*show\(['"]howScreen['"]\)/, '遊戲中應可從更多選單重開玩法說明');
 
   const screen = { classList:{ shown:false, contains(){ return this.shown; } } };
   const state = { over:false, phase:'wave', manualPaused:false };
