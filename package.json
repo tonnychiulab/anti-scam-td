@@ -1,6 +1,6 @@
 {
   "name": "anti-scam-td",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "private": true,
   "description": "Zero-dependency release checks for Scam Maze Defense",
   "scripts": {

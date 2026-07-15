@@ -5,7 +5,7 @@
 'use strict';
 
 /* ── 版本 ─────────────────────────────────────────── */
-const APP_VERSION = 'v2.1.2';
+const APP_VERSION = 'v2.2.0';
 
 /* ── 多國語系（MVP：zh/en/id/vi，字典在 i18n.js） ─── */
 let LANG = (function(){
@@ -112,6 +112,7 @@ const ETYPES = [
   { key:'invest', name:'假投資',   hp:55,  spd:40, gold:12, dmg:2, score:25,  c1:'#f0c419', c2:'#8f7311', face:'$' },
   { key:'police', name:'假檢警',   hp:120, spd:27, gold:20, dmg:3, score:50,  c1:'#8a94a6', c2:'#3d4451', face:'⚖' },
   { key:'boss',   name:'AI深偽魔王',hp:420, spd:20, gold:90, dmg:5, score:300, c1:'#ef476f', c2:'#7a1030', face:'AI', boss:true },
+  { key:'rider',  name:'詐騙車手', hp:42,  spd:82, gold:12, dmg:2, score:30,  c1:'#ff9f43', c2:'#6b2f16', face:'車', rider:true },
 ];
 
 /* ── 過關轉場英文字（各語言共用的視覺元素） ──────── */
@@ -122,6 +123,9 @@ const SUPPORT = [
   { key:'ram',   cd:40, unlock:3,  color:'#ff7b39' },   // 破門錘
   { key:'flash', cd:55, unlock:7,  color:'#fff3b0' },   // 震撼彈
   { key:'light', cd:50, unlock:11, color:'#9be7ff' },   // 強光手電筒
+  { key:'trip',  cd:35, unlock:6,  color:'#ff9f43' },   // 絆倒車手
+  { key:'atm',   cd:60, unlock:14, color:'#57e389' },   // ATM 守護
+  { key:'raid',  cd:90, unlock:24, color:'#ef476f' },   // 爆破詐騙機房
 ];
 
 /* ── 草地小幫手（隨機跳出協助的小動物） ──────────── */
@@ -148,6 +152,7 @@ let runGen = 0;        // 局次世代：舊局的 setTimeout 回呼不得影響
 let layoutPauseGen = 0;// 轉向暫停世代：只准最後一次轉向解除暫停
 let hitStop = 0;       // 慢動作剩餘秒數
 let supportAim = null; // {i,x,y,hits,knockbacks,localHits,globalHits}
+let impactFreeze = { remainingMs:0, totalMs:0, label:'', color:'#ffffff' };
 const LIGHT_CHARGE_MS = 500;
 let lightCharge = { active:false, remainingMs:0, token:0 };
 let sellConfirmTower = null, sellConfirmUntil = 0, sellConfirmTimer = 0;
@@ -261,7 +266,7 @@ function newState(){
     manualPaused:false, layoutPaused:false,
     phase:'setup', transitionGen:0,
     autoT:0, mod:MODS[0],
-    supCd:[0,0,0], beam:null,
+    supCd:Array(SUPPORT.length).fill(0), beam:null,
     critter:null, critT: 9 + Math.random()*8,
     stageScoreStart:0,
     routeGuide:{active:false, started:0, duration:1000},
@@ -328,10 +333,12 @@ function buildWave(lv){
   if (lv % 10 === 0){                                    // 魔王關
     push(4, 1 + Math.floor(lv/30), 2.2);
     push(3, Math.min(4, 1+Math.floor(lv/20)), 1.4);
+    if (lv >= 20) push(5, Math.min(4, 1 + Math.floor(lv/20)), .75);
   } else {
     push(0, 5 + Math.floor(lv*.7), .8);
     if (lv >= 3)  push(1, 2 + Math.floor(lv*.4), 1.0);
     if (lv >= 6)  push(2, 1 + Math.floor(lv*.3), 1.2);
+    if (lv >= 6)  push(5, 1 + Math.floor(lv*.18), .7);
     if (lv >= 12) push(3, Math.floor(lv*.15), 1.6);
   }
   // 洗牌（保留些微群聚感：分段洗）
@@ -368,7 +375,7 @@ function spawnEnemy(item){
   S.enemies.push({
     ti:item.ti, hp, hpMax,
     seg:0, prog:0, x:S.path[0][0]*CELL+CELL/2, y:S.path[0][1]*CELL+CELL/2,
-    spd:t.spd, slowLeft:0, slowPct:0, stunLeft:0,
+    spd:t.spd, slowLeft:0, slowPct:0, stunLeft:0, tripLeft:0,
     markLeft:0, dead:false, wob:Math.random()*6.28,
     dangerWarned:!!item.dangerWarned, dangerActive:false,
   });
@@ -671,15 +678,93 @@ function screenFlash(color){
   el.classList.add('flash-on');
 }
 
+/* 制裁技命中停格：只凍結戰場模擬，暫停／音效等介面仍可操作。 */
+function resetImpactFreeze(){
+  impactFreeze = { remainingMs:0, totalMs:0, label:'', color:'#ffffff' };
+  if (document.body){
+    document.body.classList.remove('impact-freeze');
+    if (document.body.style) document.body.style.removeProperty('--impact-color');
+  }
+  const stage = document.getElementById('stage');
+  if (stage && stage.style) stage.style.removeProperty('--impact-color');
+}
+function startImpactFreeze(durationMs, label, color){
+  if (!S || S.over || impactFreeze.remainingMs > 0) return false;
+  const ms = uxPrefs.reduceMotion ? Math.min(100, durationMs) : durationMs;
+  impactFreeze = { remainingMs:ms, totalMs:ms, label, color:color || '#ffffff' };
+  if (document.body){
+    document.body.classList.add('impact-freeze');
+    if (document.body.style) document.body.style.setProperty('--impact-color', impactFreeze.color);
+  }
+  const stage = document.getElementById('stage');
+  if (stage && stage.style) stage.style.setProperty('--impact-color', impactFreeze.color);
+  updateHUD();
+  draw();
+  return true;
+}
+function updateImpactFreeze(elapsedMs){
+  if (impactFreeze.remainingMs <= 0) return false;
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return true;
+  impactFreeze.remainingMs = Math.max(0, impactFreeze.remainingMs - Math.min(50, elapsedMs));
+  if (impactFreeze.remainingMs <= 0){
+    resetImpactFreeze();
+    updateHUD();
+  }
+  return true;
+}
+
 /* ── 特種部隊支援施放 ─────────────────────────────── */
+function supportRadius(i){
+  const sp = SUPPORT[i];
+  if (!sp) return 0;
+  return ({ ram:95, flash:140, atm:110, raid:130 })[sp.key] || 0;
+}
+function supportTargetsInRadius(x, y, radius){
+  if (!S || !Number.isFinite(x) || !Number.isFinite(y) || radius <= 0) return [];
+  return S.enemies.filter(e => !e.dead && (e.x-x)**2 + (e.y-y)**2 <= radius*radius);
+}
+function selectTripTarget(){
+  if (!S) return null;
+  const eligible = S.enemies.filter(e => !e.dead && !ETYPES[e.ti].boss);
+  eligible.sort((a,b) => {
+    const ar = ETYPES[a.ti].rider ? 1 : 0, br = ETYPES[b.ti].rider ? 1 : 0;
+    if (ar !== br) return br - ar;
+    if (a.spd !== b.spd) return b.spd - a.spd;
+    return enemyPathProgress(b) - enemyPathProgress(a);
+  });
+  return eligible[0] || null;
+}
+function selectAtmTarget(x, y){
+  const targets = supportTargetsInRadius(x, y, 110);
+  targets.sort((a,b) => b.hpMax - a.hpMax || b.hp - a.hp || enemyPathProgress(b) - enemyPathProgress(a));
+  return targets[0] || null;
+}
+function rewindEnemy(e, cells){
+  if (!S || !e || !S.path.length || ETYPES[e.ti].boss) return false;
+  const pos = Math.max(0, e.seg + e.prog - Math.max(0, cells));
+  e.seg = Math.min(S.path.length - 1, Math.floor(pos));
+  e.prog = e.seg < S.path.length - 1 ? pos - e.seg : 0;
+  const [cx,cy] = S.path[e.seg];
+  const [nx,ny] = S.path[Math.min(e.seg + 1, S.path.length - 1)];
+  e.x = (cx + (nx-cx)*e.prog) * CELL + CELL/2;
+  e.y = (cy + (ny-cy)*e.prog) * CELL + CELL/2;
+  return true;
+}
 function supportCounts(i, x, y){
   const live = S ? S.enemies.filter(e => !e.dead) : [];
-  if (i === 0){
-    const hits = live.filter(e => (e.x-x)**2 + (e.y-y)**2 <= 95*95);
-    return { hits:hits.length, knockbacks:hits.filter(e => !ETYPES[e.ti].boss).length, localHits:hits.length, globalHits:live.length };
-  }
-  const localHits = live.filter(e => (e.x-x)**2 + (e.y-y)**2 <= 140*140).length;
-  return { hits:live.length, knockbacks:0, localHits, globalHits:live.length };
+  const sp = SUPPORT[i];
+  if (!sp) return { hits:0, knockbacks:0, localHits:0, globalHits:live.length, ko:0, bosses:0, strongest:null };
+  const local = supportTargetsInRadius(x, y, supportRadius(i));
+  if (sp.key === 'ram') return { hits:local.length, knockbacks:local.filter(e => !ETYPES[e.ti].boss).length, localHits:local.length, globalHits:live.length, ko:0, bosses:0, strongest:null };
+  if (sp.key === 'flash') return { hits:live.length, knockbacks:0, localHits:local.length, globalHits:live.length, ko:0, bosses:0, strongest:null };
+  if (sp.key === 'atm') return { hits:local.length, knockbacks:0, localHits:local.length, globalHits:live.length, ko:0, bosses:0, strongest:selectAtmTarget(x,y) };
+  if (sp.key === 'raid') return {
+    hits:local.length, knockbacks:0, localHits:local.length, globalHits:live.length,
+    ko:local.filter(e => !ETYPES[e.ti].boss).length,
+    bosses:local.filter(e => ETYPES[e.ti].boss).length,
+    strongest:null,
+  };
+  return { hits:live.length, knockbacks:0, localHits:0, globalHits:live.length, ko:0, bosses:0, strongest:null };
 }
 function renderSupportConfirm(){
   const panel = document.getElementById('supportConfirm');
@@ -691,12 +776,19 @@ function renderSupportConfirm(){
   const summary = document.getElementById('scSummary');
   const ok = document.getElementById('scOk');
   if (title) title.textContent = L().support.confirmTitle;
-  if (summary) summary.textContent = supportAim.i === 0
-    ? fmt(L().support.ramPreview, {hits:counts.hits, knocks:counts.knockbacks})
-    : fmt(L().support.flashPreview, {global:counts.globalHits, local:counts.localHits});
+  const key = SUPPORT[supportAim.i] ? SUPPORT[supportAim.i].key : '';
+  if (summary){
+    if (key === 'ram') summary.textContent = fmt(L().support.ramPreview, {hits:counts.hits, knocks:counts.knockbacks});
+    else if (key === 'flash') summary.textContent = fmt(L().support.flashPreview, {global:counts.globalHits, local:counts.localHits});
+    else if (key === 'atm') summary.textContent = fmt(L().support.atmPreview, {
+      hits:counts.localHits,
+      name:counts.strongest ? L().enemies[counts.strongest.ti] : L().support.noTarget,
+    });
+    else if (key === 'raid') summary.textContent = fmt(L().support.raidPreview, {ko:counts.ko, boss:counts.bosses});
+  }
   if (ok){
     ok.textContent = L().support.confirm;
-    ok.disabled = supportAim.i === 0 ? counts.hits === 0 : counts.globalHits === 0;
+    ok.disabled = key === 'flash' ? counts.globalHits === 0 : counts.localHits === 0;
   }
   const no = document.getElementById('scNo');
   if (no) no.setAttribute('aria-label', L().support.cancel);
@@ -722,7 +814,7 @@ function beginSupportAim(i){
   updateHUD(); focusBoard();
 }
 function setSupportTarget(i, x, y){
-  if (!S || selSup !== i || (i !== 0 && i !== 1)) return;
+  if (!S || selSup !== i || ![0,1,4,5].includes(i)) return;
   supportAim = { i, x, y };
   renderSupportConfirm();
   draw();
@@ -730,7 +822,9 @@ function setSupportTarget(i, x, y){
 function confirmSupportTarget(){
   if (!S || !supportAim || selSup !== supportAim.i) return false;
   const counts = supportCounts(supportAim.i, supportAim.x, supportAim.y);
-  const allowed = supportAim.i === 0 ? counts.hits > 0 : counts.globalHits > 0;
+  const allowed = supportAim.i === 0 ? counts.hits > 0
+    : supportAim.i === 1 ? counts.globalHits > 0
+    : counts.localHits > 0;
   if (!allowed) return false;
   useSupport(supportAim.i, supportAim.x, supportAim.y);
   return true;
@@ -760,7 +854,15 @@ function updateLightCharge(elapsedMs){
 }
 function useSupport(i, px, py){
   const sp = SUPPORT[i];
-  if (!S || !sp || S.level < sp.unlock || S.supCd[i] > 0) return false;
+  if (!S || !sp || S.level < sp.unlock || S.supCd[i] > 0 || impactFreeze.remainingMs > 0) return false;
+  const live = S.enemies.filter(e => !e.dead);
+  let plan = null;
+  if (sp.key === 'ram') plan = supportTargetsInRadius(px, py, 95);
+  else if (sp.key === 'flash' || sp.key === 'light') plan = live;
+  else if (sp.key === 'trip') plan = selectTripTarget();
+  else if (sp.key === 'atm') plan = selectAtmTarget(px, py);
+  else if (sp.key === 'raid') plan = supportTargetsInRadius(px, py, 130);
+  if (!plan || (Array.isArray(plan) && plan.length === 0)) return false;
   S.supCd[i] = sp.cd;
   lightCharge = { active:false, remainingMs:0, token:lightCharge.token+1 };
   selSup = -1; supportAim = null;
@@ -798,13 +900,53 @@ function useSupport(i, px, py){
       e.stunLeft = Math.max(e.stunLeft || 0, 2.5);
       if ((e.x-px)**2 + (e.y-py)**2 <= 140*140) hitEnemy(e, dmg, null);
     }
-  } else {
+  } else if (sp.key === 'light') {
     // 強光手電筒：光束橫掃全圖，傷害＋曝光標記
     shake(6);
     screenFlash('rgba(150,220,255,.25)');
     sfxBoom(300);
     const vert = LAYOUT === 'mport';
     S.beam = { pos:-40, axis: vert ? 'y' : 'x', spd:((vert ? H : W) + 120)/1.15, hit:new Set() };
+  } else if (sp.key === 'trip'){
+    const target = plan;
+    rewindEnemy(target, 3);
+    target.tripLeft = Math.max(target.tripLeft || 0, 1.1);
+    target.stunLeft = Math.max(target.stunLeft || 0, 2.2);
+    S.fx.push({ skid:true, x:target.x, y:target.y, life:1.0, maxLife:1.0, color:sp.color });
+    hitEnemy(target, 25 + S.level * 2, null);
+    hitStop = .35;
+    shake(12);
+    screenFlash('rgba(255,159,67,.32)');
+    sfxBoom(150);
+    startImpactFreeze(180, L().support.tripImpact, sp.color);
+  } else if (sp.key === 'atm'){
+    const target = plan;
+    const boss = !!ETYPES[target.ti].boss;
+    target.stunLeft = Math.max(target.stunLeft || 0, boss ? 2 : 3);
+    S.fx.push({ atmGrab:true, x:target.x, y:target.y, life:1.15, maxLife:1.15, color:sp.color });
+    const dmg = boss ? target.hpMax * .10 : (target.hp <= target.hpMax * .35 ? target.hp + 1 : target.hpMax * .35);
+    hitEnemy(target, dmg, null);
+    hitStop = .50;
+    shake(18);
+    screenFlash('rgba(87,227,137,.30)');
+    sfxBoom(95);
+    startImpactFreeze(260, L().support.atmImpact, sp.color);
+  } else if (sp.key === 'raid'){
+    const targets = plan.slice();
+    S.fx.push({ roomBlast:true, x:px, y:py, r:130, life:1.35, maxLife:1.35, color:sp.color });
+    for (const target of targets){
+      const boss = !!ETYPES[target.ti].boss;
+      if (boss){
+        target.stunLeft = Math.max(target.stunLeft || 0, 2);
+        hitEnemy(target, target.hpMax * .30, null);
+      } else hitEnemy(target, target.hp + 1, null);
+    }
+    burst(px, py, '#ffb05c', actualQuality === 'full' ? 42 : 22);
+    hitStop = .70;
+    shake(28);
+    screenFlash('rgba(239,71,111,.55)');
+    sfxBoom(55);
+    startImpactFreeze(420, L().support.raidImpact, sp.color);
   }
   updateHUD();
   return true;
@@ -914,11 +1056,17 @@ function loop(ts){
   if (typeof maybeRaiseAutoQuality === 'function') maybeRaiseAutoQuality(ts);
   const rawDt = Math.min(.05, frameMs/1000);
   lastT = ts;
+  if (typeof impactFreeze !== 'undefined' && impactFreeze.remainingMs > 0){
+    if (typeof updateImpactFreeze === 'function') updateImpactFreeze(frameMs);
+    draw();
+    ensureLoop();
+    return;
+  }
   if (typeof updateLightCharge === 'function') updateLightCharge(rawDt * 1000);
   let dt = rawDt * SPEEDS[speedIdx];
   if (hitStop > 0){ hitStop -= rawDt; dt *= .22; }   // 破門錘慢動作
   const now = performance.now();
-  for (let i = 0; i < 3; i++) if (S.supCd[i] > 0) S.supCd[i] = Math.max(0, S.supCd[i] - dt);
+  for (let i = 0; i < S.supCd.length; i++) if (S.supCd[i] > 0) S.supCd[i] = Math.max(0, S.supCd[i] - dt);
   // 草地小幫手
   if (!S.critter){
     S.critT -= dt;
@@ -969,6 +1117,7 @@ function loop(ts){
       if (!e.slowLeft) e.slowPct = 0;
     }
     if (e.stunLeft > 0) e.stunLeft = Math.max(0, e.stunLeft - dt);
+    if (e.tripLeft > 0) e.tripLeft = Math.max(0, e.tripLeft - dt);
     if (e.markLeft > 0) e.markLeft -= dt;
     if (moveEnemy(e, dt)){
       e.dead = true;
@@ -1017,6 +1166,7 @@ function loop(ts){
     if (f.zap){ f.life -= dt; continue; }
     if (f.txt){ f.y -= 26*dt; f.life -= dt; continue; }
     if (f.ring){ f.r += (f.max/f.dur)*dt; f.life -= dt; continue; }
+    if (f.skid || f.atmGrab || f.roomBlast){ f.life -= dt; continue; }
     f.x+=f.vx*dt; f.y+=f.vy*dt; f.vy+=160*dt; f.life-=dt;
   }
   S.fx = S.fx.filter(f => f.life > 0);
@@ -1059,6 +1209,7 @@ function gameOver(win){
   S.phase = 'over';
   S.transitionGen++;
   stopLoop();
+  if (typeof resetImpactFreeze === 'function') resetImpactFreeze();
   cancelPendingTap();
   if (typeof cancelSupportAction === 'function') cancelSupportAction(false, false);
   if (document.body) document.body.classList.remove('danger-active');
@@ -1101,6 +1252,7 @@ function levelClear(){
   S.autoT = 0;
   const token = ++S.transitionGen;
   stopLoop();
+  if (typeof resetImpactFreeze === 'function') resetImpactFreeze();
   cancelPendingTap();
   closeTowerMenu();
   closeBuildMenu();
@@ -1373,9 +1525,12 @@ function draw(){
     }
   }
   if (supportAim){
-    const radius = supportAim.i === 0 ? 95 : 140;
+    const radius = supportRadius(supportAim.i);
     ctx.beginPath(); ctx.arc(supportAim.x, supportAim.y, radius, 0, 6.28);
-    ctx.fillStyle = supportAim.i === 0 ? 'rgba(255,123,57,.14)' : 'rgba(255,243,176,.14)'; ctx.fill();
+    ctx.fillStyle = supportAim.i === 5 ? 'rgba(239,71,111,.15)'
+      : supportAim.i === 4 ? 'rgba(87,227,137,.14)'
+      : supportAim.i === 0 ? 'rgba(255,123,57,.14)' : 'rgba(255,243,176,.14)';
+    ctx.fill();
     ctx.strokeStyle = SUPPORT[supportAim.i].color; ctx.lineWidth = 3; ctx.setLineDash([7,5]); ctx.stroke(); ctx.setLineDash([]);
     for (const e of S.enemies){
       if (e.dead || (e.x-supportAim.x)**2 + (e.y-supportAim.y)**2 > radius*radius) continue;
@@ -1399,6 +1554,9 @@ function draw(){
   }
   // 粒子與閃電
   for (const f of S.fx){
+    if (f.skid){ drawSkidFx(f); continue; }
+    if (f.atmGrab){ drawAtmGrabFx(f); continue; }
+    if (f.roomBlast){ drawRoomBlastFx(f); continue; }
     if (f.zap){
       ctx.globalAlpha = Math.max(0, f.life*4);
       ctx.strokeStyle = f.color; ctx.lineWidth = 3;
@@ -1458,6 +1616,64 @@ function draw(){
     ctx.setLineDash([]);
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+function drawSkidFx(f){
+  const p = 1 - Math.max(0, f.life) / f.maxLife;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, 1 - p);
+  ctx.strokeStyle = '#f4f1e8'; ctx.lineWidth = 3; ctx.setLineDash([7,4]);
+  ctx.beginPath(); ctx.moveTo(f.x-58, f.y-24); ctx.quadraticCurveTo(f.x-15, f.y-38, f.x+8, f.y-5); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = '#3b2a20'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(f.x-42, f.y+12); ctx.lineTo(f.x+34, f.y+18); ctx.stroke();
+  const sparks = actualQuality === 'full' ? 6 : 3;
+  ctx.fillStyle = '#ffd166';
+  for (let i=0;i<sparks;i++) ctx.fillRect(f.x+18+i*5, f.y+8-(i%3)*5, 4, 4);
+  ctx.restore();
+}
+function drawAtmGrabFx(f){
+  const p = 1 - Math.max(0, f.life) / f.maxLife;
+  const alpha = Math.max(0, 1 - Math.max(0, p-.7)/.3);
+  ctx.save(); ctx.globalAlpha = alpha;
+  const x=f.x, y=f.y-48;
+  ctx.fillStyle='#18392a'; ctx.fillRect(x-25,y-24,50,45);
+  ctx.fillStyle='#57e389'; ctx.fillRect(x-21,y-20,42,37);
+  ctx.fillStyle='#10271d'; ctx.fillRect(x-14,y-13,28,13);
+  ctx.fillStyle='#dfffea'; ctx.font="bold 8px 'Press Start 2P',monospace"; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('ATM',x,y-6);
+  ctx.fillStyle='#ffd166'; ctx.fillRect(x-12,y+5,24,4);
+  ctx.strokeStyle='#57e389'; ctx.lineWidth=7;
+  ctx.beginPath(); ctx.moveTo(x-22,y+9); ctx.lineTo(x-35,f.y); ctx.lineTo(x-18,f.y+8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+22,y+9); ctx.lineTo(x+35,f.y); ctx.lineTo(x+18,f.y+8); ctx.stroke();
+  ctx.fillStyle='#18392a'; ctx.fillRect(x-23,f.y+4,12,8); ctx.fillRect(x+11,f.y+4,12,8);
+  ctx.restore();
+}
+function drawRoomBlastFx(f){
+  const p = 1 - Math.max(0, f.life) / f.maxLife;
+  ctx.save();
+  if (p < .28){
+    const alpha = 1 - p/.36;
+    ctx.globalAlpha = Math.max(.25, alpha);
+    ctx.fillStyle='#2b2030'; ctx.fillRect(f.x-52,f.y-42,104,84);
+    ctx.fillStyle='#ef476f'; ctx.fillRect(f.x-48,f.y-38,96,7);
+    ctx.fillStyle='#101018';
+    for(let row=0;row<2;row++) for(let col=0;col<3;col++) ctx.fillRect(f.x-37+col*31,f.y-23+row*25,20,14);
+    ctx.fillStyle='#ff626f'; ctx.font="bold 10px 'Press Start 2P',monospace"; ctx.textAlign='center';
+    ctx.fillText('SCAM',f.x,f.y+4);
+  } else {
+    const blast = Math.min(1,(p-.28)/.42);
+    ctx.globalAlpha = Math.max(0,1-(p-.28)/.72);
+    ctx.fillStyle = uxPrefs.reduceFlash ? 'rgba(255,159,67,.32)' : 'rgba(255,209,102,.64)';
+    ctx.beginPath(); ctx.arc(f.x,f.y,18+f.r*blast,0,6.28); ctx.fill();
+    ctx.strokeStyle=f.color; ctx.lineWidth=8; ctx.beginPath(); ctx.arc(f.x,f.y,8+f.r*blast,0,6.28); ctx.stroke();
+    const debris = actualQuality === 'full' ? 12 : 6;
+    ctx.fillStyle='#2b2030';
+    for(let i=0;i<debris;i++){
+      const a=i*6.28/debris, d=25+blast*75;
+      ctx.save(); ctx.translate(f.x+Math.cos(a)*d,f.y+Math.sin(a)*d); ctx.rotate(a); ctx.fillRect(-5,-3,10,6); ctx.restore();
+    }
+  }
   ctx.restore();
 }
 function drawCritter(c){
@@ -1559,17 +1775,32 @@ function drawEnemy(e){
   // 影子
   ctx.fillStyle = 'rgba(0,0,0,.3)';
   ctx.fillRect(x-s+3, e.y+s-2, s*2-6, 4);
-  // 身體
-  ctx.fillStyle = t.c2; ctx.fillRect(x-s, y-s, s*2, s*2);
-  ctx.fillStyle = t.c1; ctx.fillRect(x-s+3, y-s+3, s*2-6, s*2-6);
-  // 眼睛（賊笑）
-  ctx.fillStyle = '#101018';
-  ctx.fillRect(x-s+5, y-4, 5, 5); ctx.fillRect(x+s-10, y-4, 5, 5);
-  ctx.fillRect(x-4, y+5, 8, 3);
-  // 記號
-  ctx.fillStyle = '#101018';
-  ctx.font = `${t.boss?16:10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText(t.face, x, y - s + 7);
+  if (t.rider){
+    ctx.save(); ctx.translate(x,y); if (e.tripLeft > 0) ctx.rotate(.48);
+    ctx.fillStyle='#101018'; ctx.fillRect(-15,7,9,9); ctx.fillRect(7,7,9,9);
+    ctx.fillStyle=t.c2; ctx.fillRect(-16,-2,31,11); ctx.fillRect(2,-13,11,12);
+    ctx.fillStyle=t.c1; ctx.fillRect(-12,-6,21,9);
+    ctx.fillStyle='#ffd9b3'; ctx.fillRect(3,-19,10,9);
+    ctx.fillStyle='#f4f1e8'; ctx.fillRect(1,-23,14,5);
+    ctx.fillStyle='#101018'; ctx.fillRect(10,-16,2,2);
+    ctx.restore();
+    if (e.tripLeft <= 0 && !uxPrefs.reduceMotion){
+      ctx.strokeStyle='rgba(244,241,232,.55)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x-22,y+1); ctx.lineTo(x-34,y+1); ctx.moveTo(x-21,y+8); ctx.lineTo(x-29,y+8); ctx.stroke();
+    }
+  } else {
+    // 身體
+    ctx.fillStyle = t.c2; ctx.fillRect(x-s, y-s, s*2, s*2);
+    ctx.fillStyle = t.c1; ctx.fillRect(x-s+3, y-s+3, s*2-6, s*2-6);
+    // 眼睛（賊笑）
+    ctx.fillStyle = '#101018';
+    ctx.fillRect(x-s+5, y-4, 5, 5); ctx.fillRect(x+s-10, y-4, 5, 5);
+    ctx.fillRect(x-4, y+5, 8, 3);
+    // 記號
+    ctx.fillStyle = '#101018';
+    ctx.font = `${t.boss?16:10}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(t.face, x, y - s + 7);
+  }
   // 減速標記
   if (e.slowLeft > 0){
     ctx.fillStyle = 'rgba(80,160,255,.6)';
@@ -1792,16 +2023,18 @@ function updateHUD(){
     const locked = S.level < sp.unlock;
     const cd = S.supCd[i];
     const noEnemies = !S.enemies.some(e => !e.dead);
+    const noTargets = i === 3 ? !selectTripTarget() : noEnemies;
     const charging = i === 2 && lightCharge.active;
+    const frozen = impactFreeze.remainingMs > 0;
     b.classList.toggle('locked', locked);
     b.classList.toggle('aiming', selSup === i);
     b.setAttribute('aria-pressed', String(selSup === i));
-    b.classList.toggle('ready', !locked && cd <= 0 && !noEnemies && !charging);
-    b.disabled = locked || cd > 0 || (noEnemies && !charging);
+    b.classList.toggle('ready', !locked && cd <= 0 && !noTargets && !charging && !frozen);
+    b.disabled = locked || cd > 0 || (noTargets && !charging) || frozen;
     const cdEl = b.querySelector && b.querySelector('.cd');
     if (cdEl) cdEl.textContent = locked ? '🔒Lv.' + sp.unlock
       : charging ? L().support.cancelShort
-      : (cd > 0 ? Math.ceil(cd) + 's' : (noEnemies ? '—' : 'GO'));
+      : (cd > 0 ? Math.ceil(cd) + 's' : (noTargets ? '—' : 'GO'));
   });
   const nb = $('btnNextWave');
   const canStart = !S.over && S.phase === 'setup' && !S.waveActive;
@@ -1811,7 +2044,8 @@ function updateHUD(){
     : (S.autoT > 0 ? fmt(L().ui.waveCount, {n:Math.ceil(S.autoT)}) : L().ui.waveGo);
   const waveInfo = document.getElementById('waveInfo');
   if (waveInfo){
-    if (S.dangerFinal) waveInfo.textContent = fmt(L().ui.dangerFinal, {n:S.dangerCount});
+    if (impactFreeze.remainingMs > 0) waveInfo.textContent = impactFreeze.label;
+    else if (S.dangerFinal) waveInfo.textContent = fmt(L().ui.dangerFinal, {n:S.dangerCount});
     else if (S.dangerCount) waveInfo.textContent = fmt(L().ui.dangerCount, {n:S.dangerCount});
     else if (S.phase === 'setup') waveInfo.textContent = fmt(L().ui.waveReady, {lv:S.level, n:Math.max(0,Math.ceil(S.autoT))});
     else waveInfo.textContent = fmt(L().ui.waveRemain, {n:S.spawnQ.length + S.enemies.length});
@@ -2318,11 +2552,16 @@ document.querySelectorAll('.tower-btn').forEach((b,i) => {
 });
 document.querySelectorAll('.sup-btn').forEach((b,i) => {
   b.addEventListener('click', () => {
-    if (!S || S.over || S.phase === 'clearing') return;
+    if (!S || S.over || S.phase === 'clearing' || impactFreeze.remainingMs > 0) return;
     finishRouteGuide();
     if (i === 2 && lightCharge.active){ cancelSupportAction(); return; }
     if (S.level < SUPPORT[i].unlock || S.supCd[i] > 0 || S.enemies.every(e => e.dead)) return;
     if (i === 2) startLightCharge();
+    else if (i === 3){
+      cancelSupportAction(false, true);
+      suspendBuildMenu();
+      if (!useSupport(i, 0, 0)) restoreSuspendedBuildMenu();
+    }
     else if (selSup === i){
       if (!cancelSupportAction()) focusBoard();
       return;
@@ -2659,6 +2898,7 @@ $('btnRetry').addEventListener('click', () => { hide('endScreen'); startGame(); 
 
 function startGame(){
   stopLoop();
+  if (typeof resetImpactFreeze === 'function') resetImpactFreeze();
   runGen++;                                     // 讓上一局的 setTimeout 全部失效
   layoutPauseGen++;
   cancelPendingTap();

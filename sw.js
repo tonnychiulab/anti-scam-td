@@ -2,7 +2,7 @@
 'use strict';
 
 const CACHE_PREFIX = 'asmd-';
-const CACHE = `${CACHE_PREFIX}v2.1.2`;
+const CACHE = `${CACHE_PREFIX}v2.2.0`;
 const ASSETS = [
   './',
   './index.html',
