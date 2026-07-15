@@ -135,6 +135,7 @@ input:focus-visible,
 .sup-btn .se{font-size:20px; line-height:1.1;}
 .sup-btn .sn{font-family:var(--font-zh); font-size:13px;}
 .sup-btn .cd{font-size:11px; color:var(--gold);}
+.sup-btn.enforcement{border-color:#ff9f43;}
 .sup-btn.locked{filter:grayscale(1) brightness(.55);}
 .sup-btn.ready{border-color:var(--gold); animation:supPulse 1.2s steps(2) infinite;}
 .sup-btn.aiming{background:var(--red); color:#1b1b2f; border-color:#fff; animation:supAim .5s steps(2) infinite;}
@@ -147,6 +148,16 @@ input:focus-visible,
 }
 #screenFlash.flash-on{animation:bigFlash .5s steps(6) forwards;}
 @keyframes bigFlash{0%{opacity:1;} 100%{opacity:0;}}
+
+/* 制裁技命中停格：用外框與 HUD 文字保留命中瞬間，不阻擋控制按鈕。 */
+body.impact-freeze #cv{
+  border-color:var(--impact-color,#fff);
+  box-shadow:0 0 0 4px var(--impact-color,#fff), 8px 8px 0 #000;
+  animation:impactFrame .12s steps(2) infinite;
+}
+body.impact-freeze .wave-info{color:var(--impact-color,#fff); text-shadow:2px 2px 0 #000;}
+@keyframes impactFrame{50%{filter:brightness(1.16) contrast(1.08);}}
+body.reduce-motion.impact-freeze #cv{animation:none;}
 
 /* ── 遊戲畫布 ─────────────────────────── */
 #stage{position:relative; width:100%; max-width:1560px; padding:0 12px;}
@@ -370,7 +381,9 @@ body[data-layout="mland"] .sup-btn .se, body[data-layout="mport"] .sup-btn .se{f
 body[data-layout="mport"] #supportBar{
   right:calc(6px + env(safe-area-inset-right)); top:30%;
   flex-direction:column;
+  max-height:62dvh; overflow-y:auto; scrollbar-width:none;
 }
+body[data-layout="mport"] #supportBar::-webkit-scrollbar{display:none;}
 body[data-layout="mport"] #cv{
   width:auto; max-width:100%;
   max-height:calc(100dvh - 170px);   /* HUD＋dock 之外全給棋盤 */
@@ -382,8 +395,10 @@ body[data-layout="mport"] #stage{padding:0 4px;}
 body[data-layout="mland"] #supportBar{
   right:calc(6px + env(safe-area-inset-right));
   bottom:calc(96px + env(safe-area-inset-bottom));
-  flex-direction:column;
+  left:6px; width:calc(100% - 12px); flex-direction:row; flex-wrap:nowrap;
+  justify-content:flex-end; overflow-x:auto; scrollbar-width:none;
 }
+body[data-layout="mland"] #supportBar::-webkit-scrollbar{display:none;}
 body[data-layout="mland"] #cv{
   width:auto; max-width:100%;
   max-height:calc(100dvh - 160px);

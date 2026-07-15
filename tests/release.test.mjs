@@ -283,7 +283,7 @@ test('the four locale dictionaries keep the same complete structure and placehol
   }
   for (const locale of ['zh', 'en', 'id', 'vi']) {
     assert.equal(i18n[locale].towers.length, 13, `${locale} 應有 13 座塔名稱`);
-    assert.equal(i18n[locale].enemies.length, 5, `${locale} 應有 5 種敵人名稱`);
+    assert.equal(i18n[locale].enemies.length, 6, `${locale} 應有 6 種敵人名稱`);
     assert.equal(i18n[locale].quiz.length, 12, `${locale} 應有 12 題測驗`);
     assert.equal(i18n[locale].tips.length, 21, `${locale} 應有 21 則提示`);
   }
@@ -988,7 +988,7 @@ test('localized controls and tooltips stay complete in every locale', () => {
   for (const locale of ['zh','en','id','vi']) {
     const lang = i18n[locale];
     assert.equal(lang.towerTips.length, 13, `${locale} 應有 13 筆塔說明`);
-    assert.equal(lang.support.tips.length, 3, `${locale} 應有 3 筆支援說明`);
+    assert.equal(lang.support.tips.length, 6, `${locale} 應有 6 筆支援說明`);
     for (const value of Object.values(lang.ui.hudTitles)) assert.ok(value, `${locale} HUD title 不可空白`);
     for (const value of Object.values(lang.ui.controls)) assert.ok(value, `${locale} control label 不可空白`);
   }
@@ -1276,4 +1276,151 @@ test('v2.1 mobile HUD, More pause restoration, score placement, and destructive 
   assert.equal(state.manualPaused, true, '更多面板開啟時應暫停');
   context.__more__.closeMore();
   assert.equal(state.manualPaused, false, '關閉後應恢復原本未暫停狀態');
+});
+
+test('v2.2 rider and enforcement-skill data preserve the boss index and unlock progression', () => {
+  const context = Object.create(null);
+  vm.runInNewContext([
+    sourceBetween(gameSource, 'const ETYPES =', '/* ── 過關轉場'),
+    sourceBetween(gameSource, 'const SUPPORT =', '/* ── 草地小幫手'),
+    'globalThis.__data__={ETYPES,SUPPORT};',
+  ].join('\n'), context);
+  const { ETYPES, SUPPORT } = context.__data__;
+  assert.equal(ETYPES[4].key, 'boss', '既有 Boss 索引不可變動');
+  assert.equal(ETYPES[5].key, 'rider');
+  assert.equal(ETYPES[5].rider, true);
+  assert.equal(ETYPES[5].spd, 82, '車手必須是高速急迫型敵人');
+  assert.deepEqual(Array.from(SUPPORT.slice(3).map(s => [s.key,s.unlock,s.cd])), [
+    ['trip',6,35], ['atm',14,60], ['raid',24,90],
+  ]);
+  assert.equal((htmlSource.match(/class="pixel-btn sup-btn/g) || []).length, 6, '介面必須有六個支援技能按鈕');
+
+  const waveContext = { S:{ mod:{hpAdj:1,count:1}, spawnQ:[] }, RNG:() => () => .4 };
+  vm.runInNewContext(`${extractFunction(gameSource, 'buildWave')}\nglobalThis.__wave__=buildWave;`, waveContext);
+  waveContext.__wave__(5);
+  assert.equal(waveContext.S.spawnQ.some(item => item.ti === 5), false, '第 6 關前不可出現車手');
+  waveContext.__wave__(6);
+  assert.equal(waveContext.S.spawnQ.some(item => item.ti === 5), true, '第 6 關起必須出現車手');
+  waveContext.__wave__(20);
+  assert.equal(waveContext.S.spawnQ.some(item => item.ti === 4), true, 'Boss 波仍須保留 Boss');
+  assert.equal(waveContext.S.spawnQ.some(item => item.ti === 5), true, '後期 Boss 波可伴隨車手');
+});
+
+test('v2.2 targeting prioritizes riders, keeps bosses trip-proof, and selects the strongest ATM target', () => {
+  const enemies = [
+    {id:'boss',ti:4,spd:999,progress:.9,dead:false,hpMax:1000,hp:1000,x:10,y:0},
+    {id:'fast',ti:0,spd:90,progress:.7,dead:false,hpMax:80,hp:80,x:20,y:0},
+    {id:'rider',ti:5,spd:82,progress:.2,dead:false,hpMax:42,hp:42,x:30,y:0},
+    {id:'outside',ti:3,spd:27,progress:.8,dead:false,hpMax:2000,hp:2000,x:300,y:0},
+  ];
+  const context = {
+    S:{ enemies, path:Array.from({length:8},(_,i)=>[i,0]) },
+    ETYPES:[{},{},{},{},{boss:true},{rider:true}],
+    CELL:48,
+    enemyPathProgress:e => e.progress || 0,
+  };
+  vm.runInNewContext([
+    extractFunction(gameSource, 'supportTargetsInRadius'),
+    extractFunction(gameSource, 'selectTripTarget'),
+    extractFunction(gameSource, 'selectAtmTarget'),
+    extractFunction(gameSource, 'rewindEnemy'),
+    'globalThis.__v22__={selectTripTarget,selectAtmTarget,rewindEnemy};',
+  ].join('\n'), context);
+  assert.equal(context.__v22__.selectTripTarget().id, 'rider', '有車手時必須優先絆倒車手');
+  enemies[2].dead = true;
+  assert.equal(context.__v22__.selectTripTarget().id, 'fast', '無車手時改鎖定最快非 Boss');
+  enemies[2].dead = false;
+  assert.equal(context.__v22__.selectAtmTarget(0,0).id, 'boss', 'ATM 應選範圍內最大生命最高者');
+
+  const moving = {ti:0,seg:5,prog:.5,x:0,y:0};
+  assert.equal(context.__v22__.rewindEnemy(moving,3), true);
+  assert.equal(moving.seg,2); assert.equal(moving.prog,.5);
+  const boss = {ti:4,seg:5,prog:.5,x:0,y:0};
+  assert.equal(context.__v22__.rewindEnemy(boss,3), false, 'Boss 不可被絆倒擊退');
+  assert.equal(boss.seg,5);
+});
+
+test('v2.2 enforcement damage, hit-freeze timing, and reduced-motion cap follow the decision', () => {
+  const casts = [];
+  const makeContext = enemies => ({
+    SUPPORT:[
+      {key:'ram',cd:40,unlock:3,color:'#f00'}, {key:'flash',cd:55,unlock:7,color:'#fff'},
+      {key:'light',cd:50,unlock:11,color:'#cff'}, {key:'trip',cd:35,unlock:6,color:'#f90'},
+      {key:'atm',cd:60,unlock:14,color:'#5e8'}, {key:'raid',cd:90,unlock:24,color:'#e47'},
+    ],
+    ETYPES:[{}, {boss:true}, {}, {}, {boss:true}, {rider:true}],
+    S:{level:24,over:false,supCd:[0,0,0,0,0,0],enemies,fx:[]},
+    impactFreeze:{remainingMs:0}, lightCharge:{active:false,remainingMs:0,token:0},
+    selSup:-1, supportAim:null, hitStop:0, actualQuality:'full',
+    supportTargetsInRadius:() => enemies.filter(e => !e.dead),
+    selectTripTarget:() => enemies.find(e => !e.dead && !e.boss) || null,
+    selectAtmTarget:() => enemies.filter(e => !e.dead).sort((a,b)=>b.hpMax-a.hpMax)[0] || null,
+    rewindEnemy:(e,cells) => { e.rewound=cells; return true; },
+    hitEnemy:(e,dmg) => { e.damage=(e.damage||0)+dmg; e.hp-=dmg; if(e.hp<=0)e.dead=true; },
+    startImpactFreeze:(ms,label) => { casts.push([ms,label]); return true; },
+    discardSuspendedBuildMenu(){}, closeBuildMenu(){}, banner(){}, shake(){}, screenFlash(){}, sfxBoom(){}, burst(){}, updateHUD(){},
+    document:{getElementById:()=>({classList:{add(){}}})},
+    L:()=>({support:{arrive:'arrive',tripImpact:'trip',atmImpact:'atm',raidImpact:'raid'}}),
+  });
+  const runCast = context => {
+    vm.runInNewContext(`${extractFunction(gameSource, 'useSupport')}\nglobalThis.__cast__=useSupport;`, context);
+    return context.__cast__;
+  };
+
+  let enemies = [{ti:5,boss:false,hp:100,hpMax:100,dead:false,stunLeft:0,tripLeft:0}];
+  let context = makeContext(enemies), cast = runCast(context);
+  assert.equal(cast(3,0,0), true);
+  assert.equal(enemies[0].rewound,3); assert.equal(enemies[0].stunLeft,2.2);
+  assert.equal(enemies[0].damage,73); assert.equal(context.S.supCd[3],35);
+
+  enemies = [{ti:0,boss:false,hp:30,hpMax:100,dead:false,stunLeft:0}];
+  context = makeContext(enemies); cast = runCast(context);
+  assert.equal(cast(4,0,0), true);
+  assert.equal(enemies[0].dead,true,'ATM 應制裁生命低於 35% 的非 Boss');
+  assert.equal(context.S.supCd[4],60);
+
+  enemies = [
+    {ti:0,boss:false,hp:100,hpMax:100,dead:false,stunLeft:0},
+    {ti:4,boss:true,hp:1000,hpMax:1000,dead:false,stunLeft:0},
+  ];
+  context = makeContext(enemies); cast = runCast(context);
+  assert.equal(cast(5,0,0), true);
+  assert.equal(enemies[0].dead,true,'機房爆破應 KO 非 Boss');
+  assert.equal(enemies[1].dead,false,'機房爆破不可直接 KO Boss');
+  assert.equal(enemies[1].hp,700,'Boss 應損失最大生命 30%');
+  assert.equal(enemies[1].stunLeft,2);
+  assert.deepEqual(casts.map(v=>v[0]),[180,260,420]);
+
+  const classes = new Set();
+  const stageStyle = {setProperty(){},removeProperty(){}};
+  const freezeContext = {
+    S:{over:false}, uxPrefs:{reduceMotion:true},
+    impactFreeze:{remainingMs:0,totalMs:0,label:'',color:'#fff'},
+    document:{body:{classList:{add:v=>classes.add(v),remove:v=>classes.delete(v)}},getElementById:()=>({style:stageStyle})},
+    updateHUD(){},draw(){},Number,
+  };
+  vm.runInNewContext([
+    extractFunction(gameSource,'resetImpactFreeze'), extractFunction(gameSource,'startImpactFreeze'), extractFunction(gameSource,'updateImpactFreeze'),
+    'globalThis.__freeze__={startImpactFreeze,updateImpactFreeze};',
+  ].join('\n'), freezeContext);
+  assert.equal(freezeContext.__freeze__.startImpactFreeze(420,'impact','#fff'),true);
+  assert.equal(freezeContext.impactFreeze.remainingMs,100,'減少動態時停格上限為 100ms');
+  freezeContext.__freeze__.updateImpactFreeze(100);
+  assert.equal(freezeContext.impactFreeze.remainingMs,50,'每幀停格耗時須設上限，避免背景分頁直接跳過演出');
+  freezeContext.__freeze__.updateImpactFreeze(100);
+  freezeContext.uxPrefs.reduceMotion = false;
+  assert.equal(freezeContext.__freeze__.startImpactFreeze(420,'impact','#fff'),true);
+  assert.equal(freezeContext.impactFreeze.remainingMs,420,'一般模式必須保留完整 420ms 停格');
+
+  const loopContext = {
+    S:{paused:false,over:false,phase:'wave',supCd:[10]}, raf:1,lastT:0,
+    impactFreeze:{remainingMs:100},
+    draw(){}, ensureLoop(){},
+  };
+  loopContext.updateImpactFreeze = ms => { loopContext.impactFreeze.remainingMs-=ms; };
+  vm.runInNewContext(`${extractFunction(gameSource,'loop')}\nglobalThis.__loop__=loop;`,loopContext);
+  loopContext.__loop__(16);
+  assert.equal(loopContext.S.supCd[0],10,'命中停格期間不得推進技能冷卻');
+  assert.match(styleSource,/body\.impact-freeze #cv/,'停格必須有可見戰場外框');
+  assert.match(styleSource,/body\.reduce-motion\.impact-freeze #cv\{animation:none;/,'減少動態時不得播放停格閃動');
 });
