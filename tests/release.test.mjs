@@ -10,7 +10,9 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const fromRoot = (...parts) => path.join(ROOT, ...parts);
 const readText = file => readFileSync(fromRoot(file), 'utf8');
 
-const gameSource = readText('game.js');
+// v2.3 起瀏覽器端拆為多個傳統 script（data.js 資料表、render.js 繪圖、combat.js 戰鬥、ui.js 介面、game.js 核心），
+// 依 index.html 載入順序串接後仍視為單一來源，既有字串／函式抽取檢查照常涵蓋全部。
+const gameSource = ['data.js', 'render.js', 'combat.js', 'ui.js', 'game.js'].map(readText).join('\n');
 const i18nSource = readText('i18n.js');
 const htmlSource = readText('index.html');
 const swSource = readText('sw.js');
@@ -208,7 +210,7 @@ function createPointerHarness({ scale = 2, towers = [] } = {}) {
 }
 
 test('browser JavaScript passes Node syntax checks', async t => {
-  for (const file of ['game.js', 'i18n.js', 'sw.js']) {
+  for (const file of ['game.js', 'data.js', 'render.js', 'combat.js', 'ui.js', 'i18n.js', 'sw.js']) {
     await t.test(file, () => {
       const result = spawnSync(process.execPath, ['--check', fromRoot(file)], { encoding: 'utf8' });
       assert.equal(result.status, 0, `${file} 語法檢查失敗：\n${result.stderr || result.stdout}`);
@@ -941,7 +943,8 @@ test('cancelling the browser install dialog does not permanently dismiss the off
     L: () => ({ ui: { pwaMsg: '', pwaYes: '', pwaNo: '', pwaNever: '' } }),
   };
   vm.runInNewContext(
-    sourceBetween(gameSource, 'let deferredPrompt = null;', '/* ── Service Worker'),
+    // 拆檔後 PWA 段在 ui.js 結尾，切到下一段串接內容（game.js 檔頭橫幅）之前
+    sourceBetween(gameSource, 'let deferredPrompt = null;', '\n/* ═══'),
     context,
     { filename: 'pwa-offer.test.js', timeout: 1_000 },
   );
@@ -1000,8 +1003,12 @@ test('v2.2.1 service worker precache survives an individual asset failure', asyn
   handlers.install({waitUntil(value){ installPromise = value; }});
   await installPromise;
 
-  assert.equal(added.length, 9, '每個 app-shell 資源都必須各自嘗試快取');
+  assert.equal(added.length, 13, '每個 app-shell 資源都必須各自嘗試快取');  // v2.3 拆檔後 +data +render +combat +ui
   assert.ok(added.includes('./game.js'));
+  assert.ok(added.includes('./data.js'));
+  assert.ok(added.includes('./render.js'));
+  assert.ok(added.includes('./combat.js'));
+  assert.ok(added.includes('./ui.js'));
   assert.equal(skipped, 1, '單一檔案失敗後仍應完成安裝並接管新版');
   assert.equal(warnings.length, 1, '部分快取失敗時應留下診斷警告');
   assert.doesNotMatch(swSource, /cache\.addAll\s*\(/, '不可再用單一失敗即整批拒絕的 addAll');
@@ -1396,6 +1403,15 @@ test('v2.2 rider and enforcement-skill data preserve the boss index and unlock p
   waveContext.__wave__(20);
   assert.equal(waveContext.S.spawnQ.some(item => item.ti === 4), true, 'Boss 波仍須保留 Boss');
   assert.equal(waveContext.S.spawnQ.some(item => item.ti === 5), true, '後期 Boss 波可伴隨車手');
+});
+
+test('LICENSE 必須存在且為 MIT（護欄：防止再被誤刪）', () => {
+  const licensePath = fromRoot('LICENSE');
+  assert.ok(existsSync(licensePath), 'LICENSE 不存在——本專案為公益 MIT 授權，請執行 `git restore LICENSE` 還原後再發布');
+  const license = readFileSync(licensePath, 'utf8');
+  assert.match(license, /^MIT License/m, 'LICENSE 首行必須為「MIT License」');
+  assert.match(license, /Permission is hereby granted, free of charge/, 'LICENSE 必須包含 MIT 授權條款正文');
+  assert.match(license, /Copyright \(c\) \d{4}/, 'LICENSE 必須包含版權年份');
 });
 
 test('v2.2 targeting prioritizes riders, keeps bosses trip-proof, and selects the strongest ATM target', () => {
