@@ -2,13 +2,17 @@
 'use strict';
 
 const CACHE_PREFIX = 'asmd-';
-const CACHE = `${CACHE_PREFIX}v2.2.1`;
+const CACHE = `${CACHE_PREFIX}v2.3.0`;
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './game.js',
   './i18n.js',
+  './data.js',
+  './render.js',
+  './combat.js',
+  './ui.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
